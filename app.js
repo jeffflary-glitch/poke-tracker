@@ -6,12 +6,14 @@
      who        ""  or "max"                   → which sheet the Apps Script reads (?who=max)
      photos     "sealed/"                      → folder holding photos.json and your own photos
      store      "pkt" / "pkt-max"              → prefix for what the app saves on the phone (keeps apps apart)
-     fallback   true                           → if never loaded, show the old Apps Script page instead */
+     fallback   true                           → if never loaded, show the old Apps Script page instead
+     api        Apps Script /exec link         → optional: this tracker's own data link (default: Jeff's) */
 const CFG = Object.assign({owner:"Jeff", sheetName:"Pokemon tracker Jeff", sheetId:"", who:"", photos:"sealed/", store:"pkt", fallback:false}, window.PKT || {});
 const SHEET_ID = CFG.sheetId;
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit";
 // The Apps Script web app. "?data=1" returns the sheet as data; without it, the old all-in-one page.
-const API = "https://script.google.com/macros/s/AKfycbxkjs8M4ngqGeTfGU3787LDaHR_14qMyPYEdk3aiF5iLovlu1aQYs9Db_NTbfosv2jQCA/exec";
+// A page can use its own Apps Script link (api) — Max's tracker has one — otherwise Jeff's is used.
+const API = CFG.api || "https://script.google.com/macros/s/AKfycbxkjs8M4ngqGeTfGU3787LDaHR_14qMyPYEdk3aiF5iLovlu1aQYs9Db_NTbfosv2jQCA/exec";
 const CACHE_KEY = CFG.store + "-data";
 const TAB_KEY = CFG.store + "-tab";
 const KEYS = ["collection","storage","grading","log","history"];
@@ -273,7 +275,7 @@ async function fetchData(){
 function rightSheet(d){
   if (!d) return false;
   if (d.sheetId) return d.sheetId === SHEET_ID;
-  return !CFG.who;
+  return !CFG.who || !!CFG.api; // a page's own link (api) only serves that page's sheet
 }
 function apply(d){
   const at = (d && d.at) || Date.now();
