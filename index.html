@@ -197,6 +197,32 @@ section.panel{background:var(--surface);border:1px solid var(--line);border-radi
 .spark{width:100%;height:auto;display:block}
 .spark text{fill:var(--muted);font-family:var(--f-mono);font-size:11px}
 a{color:var(--accent)}
+
+/* card pictures */
+.thumb{width:44px;aspect-ratio:63/88;border-radius:4px;background:var(--surface-2);overflow:hidden;flex:none;position:relative}
+.thumb img,.art img,.dimg img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb.sm{width:34px}
+.thumb:not(.has-img)::after{content:"";position:absolute;inset:30% 25%;border-radius:50%;border:2px solid var(--line)}
+.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tap:active{background:var(--surface-2)}
+.row{grid-template-columns:44px minmax(0,1fr) auto}
+.row .thumb{grid-row:span 2}
+.row .loc{grid-column:2/-1}
+.hits.pics li{grid-template-columns:34px minmax(0,1fr) auto;align-items:center}
+.hits.pics .thumb{grid-row:span 2;align-self:start}
+.hits.pics .meta{grid-column:2/-1}
+.slot .art{position:absolute;inset:0;z-index:1}
+.slot .art:not(.has-img){opacity:0;pointer-events:none}
+.slot .art.has-img ~ .sn{z-index:2;background:var(--surface);border-radius:4px;padding:0 4px;top:4px;right:4px}
+.slot .art.has-img ~ .px{z-index:2;position:absolute;left:4px;bottom:6px;background:var(--surface);border-radius:4px;padding:1px 5px;font-size:11px}
+.slot.fill::after{z-index:2}
+dialog#detail{border:0;padding:0;border-radius:16px;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto}
+dialog#detail::backdrop{background:rgba(5,10,15,.6)}
+.dhead{display:flex;justify-content:flex-end;padding:10px 10px 0}
+.dimg{width:min(260px,68vw);aspect-ratio:63/88;margin:0 auto;border-radius:12px;overflow:hidden;background:var(--surface-2);position:relative}
+.dimg:not(.has-img)::after{content:"No picture found";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
+.dbody{padding:16px;display:flex;flex-direction:column;gap:12px}
+.dbody h2{font-size:20px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -219,6 +245,7 @@ a{color:var(--accent)}
   </div>
 </header>
 <main class="wrap" id="main" aria-live="polite"></main>
+<dialog id="detail" aria-label="Card details"></dialog>
 
 <script>
 const SHEET_ID = "143nfwKic9pxbT8e3BtbWnm3pWjFA7IvGOD8aVY8ILy0";
@@ -260,6 +287,104 @@ function ago(ts){
   if (m < 60) return "Updated " + m + " min ago";
   const h = Math.round(m / 60);
   return h < 24 ? "Updated " + h + " hr ago" : "Updated " + new Date(ts).toLocaleDateString();
+}
+
+/* ---------- card pictures ---------- */
+/* Pictures come from TCGdex (free card database), matched by set name + card number.
+   The set list and each set's card list are saved on the phone so they load once. */
+const TCG = "https://api.tcgdex.net/v2/en";
+const IMG = {sets:null, maps:{}, loading:{}};
+const normSet = s => String(s || "").replace(/\(.*?\)/g, "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+const numKey = n => { const x = String(n || "").split("/")[0].trim().toLowerCase().replace(/\s+/g, ""); return /^\d+$/.test(x) ? String(+x) : x; };
+const hasPic = r => r.tier !== "sealed" && r.num && !/mixed/i.test(r.num) && !/\(count\)/i.test(r.name);
+const picAttrs = r => hasPic(r) ? ` data-set="${esc(r.set)}" data-num="${esc(r.num)}"` : "";
+function cacheGet(k, maxAge){ try { const v = JSON.parse(localStorage.getItem(k) || "null"); if (v && Date.now() - v.t < maxAge) return v.d; } catch(e) {} return null; }
+function cachePut(k, d){ try { localStorage.setItem(k, JSON.stringify({t:Date.now(), d})); } catch(e) {} }
+async function getJSON(url){ const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
+function setIdFor(name){
+  const n = normSet(name);
+  if (!n || !IMG.sets) return null;
+  return IMG.sets[n] || (n.endsWith("blackstarpromos") && IMG.sets[n.replace(/blackstarpromos$/, "pblackstarpromos")]) || null;
+}
+// undefined = not known yet, null = no picture, string = picture address
+function lookup(set, num){
+  if (!IMG.sets) return undefined;
+  const id = setIdFor(set);
+  if (!id) return null;
+  const m = IMG.maps[id];
+  return m ? (m[numKey(num)] || null) : undefined;
+}
+function loadSets(){
+  if (IMG.sets) return Promise.resolve();
+  return IMG.loading._sets || (IMG.loading._sets = (async () => {
+    let idx = cacheGet("pkt-tcg-sets", 7 * 864e5);
+    if (!idx) {
+      try {
+        idx = {};
+        for (const x of await getJSON(TCG + "/sets")) { const k = normSet(x.name); if (k && !idx[k]) idx[k] = x.id; }
+        cachePut("pkt-tcg-sets", idx);
+      } catch(e) { idx = {}; }
+    }
+    IMG.sets = idx;
+  })());
+}
+function loadSet(id){
+  if (IMG.maps[id]) return Promise.resolve();
+  return IMG.loading[id] || (IMG.loading[id] = (async () => {
+    let m = cacheGet("pkt-tcg-set-" + id, 14 * 864e5);
+    if (!m) {
+      try {
+        m = {};
+        for (const c of (await getJSON(TCG + "/sets/" + encodeURIComponent(id))).cards || []) if (c.image) m[numKey(c.localId)] = c.image;
+        cachePut("pkt-tcg-set-" + id, m);
+      } catch(e) { m = {}; }
+    }
+    IMG.maps[id] = m;
+  })());
+}
+// Fills in every [data-set][data-num] picture box on screen; fetches what it doesn't know yet, then runs again.
+function hydrate(root){
+  root = root || document;
+  const need = new Set();
+  root.querySelectorAll("[data-set][data-num]:not([data-done])").forEach(el => {
+    const u = lookup(el.dataset.set, el.dataset.num);
+    if (u === undefined) { need.add(el.dataset.set); return; }
+    el.dataset.done = "1";
+    if (u) {
+      const img = new Image();
+      img.alt = ""; img.decoding = "async"; img.loading = "lazy";
+      img.onload = () => el.classList.add("has-img");
+      img.src = u + "/" + (el.dataset.size || "low") + ".webp";
+      el.appendChild(img);
+    }
+  });
+  if (!need.size) return;
+  loadSets().then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; }))).then(() => hydrate(root));
+}
+
+/* ---------- card details ---------- */
+function openDetail(i){
+  const r = (S.data.collection || [])[i];
+  const d = $("detail");
+  if (!r || !d) return;
+  const row = (k, v) => v ? `<div><div class="k">${k}</div><div class="v">${esc(v)}</div></div>` : "";
+  d.innerHTML = `<div class="dhead"><button class="btn" type="button" id="dclose">Close</button></div>
+    <div class="dimg"${picAttrs(r)} data-size="high"></div>
+    <div class="dbody">
+      <div><h2>${esc(r.name)}</h2><div class="note">${esc(r.set)}${r.num ? " · " + esc(r.num) : ""}${r.rarity ? " · " + esc(r.rarity) : ""}</div></div>
+      <div class="gtbl">
+        <div><div class="k">Price</div><div class="v">${usd(r.price)}</div></div>
+        <div><div class="k">Qty</div><div class="v">${int(r.qty)}</div></div>
+        <div><div class="k">Total</div><div class="v">${usd(r.total)}</div></div>
+      </div>
+      <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
+      <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
+      ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : ""}
+    </div>`;
+  $("dclose").onclick = () => d.close();
+  d.onclick = e => { if (e.target === d) d.close(); };
+  if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  hydrate(d);
 }
 
 /* ---------- parsing ---------- */
@@ -362,6 +487,7 @@ function render(){
   main.dataset.view = S.tab;
   main.innerHTML = ({overview:viewOverview, collection:viewCollection, binder:viewBinder, grading:viewGrading, storage:viewStorage}[S.tab] || viewOverview)();
   wire();
+  hydrate(main);
 }
 
 function stateView(){
@@ -406,7 +532,7 @@ function viewOverview(){
   const setBars = top.map(([n,v]) => `<div class="bar"><span class="n" title="${esc(n)}">${esc(n)}</span><span class="t"><span style="width:${(v/max*100).toFixed(1)}%"></span></span><span class="v">${usd(v)}</span></div>`).join("");
 
   const hits = c.filter(r => r.tier !== "sealed" && !/\(count\)/i.test(r.name)).sort((a,b) => b.price - a.price).slice(0, 6)
-    .map(r => `<li class="t-${r.tier}"><span class="nm">${esc(r.name)}</span><span class="px">${usd(r.price)}</span><span class="meta">${esc(r.set)} · ${esc(r.num)} · <span class="pin"><i></i>${esc(r.loc)}</span></span></li>`).join("");
+    .map(r => `<li class="t-${r.tier} tap" data-i="${r.i}"><span class="thumb sm"${picAttrs(r)}></span><span class="nm">${esc(r.name)}</span><span class="px">${usd(r.price)}</span><span class="meta">${esc(r.set)} · ${esc(r.num)} · <span class="pin"><i></i>${esc(r.loc)}</span></span></li>`).join("");
 
   const needSleeve = c.filter(r => r.sleeve);
   const nsQty = needSleeve.reduce((a,r) => a + r.qty, 0);
@@ -425,7 +551,7 @@ function viewOverview(){
     <div class="tiers">${tiers}</div>
   </section>
   <div class="grid2">
-    <section class="panel"><h2>Top cards</h2><ul class="hits">${hits || '<li class="muted">No singles yet.</li>'}</ul></section>
+    <section class="panel"><h2>Top cards</h2><ul class="hits pics">${hits || '<li class="muted">No singles yet.</li>'}</ul></section>
     <section class="panel"><h2>Value by set</h2><div class="bars">${setBars || '<p class="note">No singles yet.</p>'}</div></section>
   </div>
   <div class="grid2">
@@ -497,11 +623,13 @@ function updateList(){
   $("count").textContent = `${rows.length} rows · ${int(qty)} items · ${usd(val)}`;
   document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === S.filter)));
   $("colList").innerHTML = rows.length ? rows.map(r => `
-    <li class="row t-${r.tier}">
+    <li class="row t-${r.tier} tap" data-i="${r.i}" tabindex="0">
+      <span class="thumb"${picAttrs(r)}></span>
       <div><div class="nm">${esc(r.name)}</div><div class="meta">${esc(r.set)}${r.num ? " · " + esc(r.num) : ""}${r.rarity ? " · " + esc(r.rarity) : ""}${r.cond && r.cond !== "NM" ? " · " + esc(r.cond) : ""}</div></div>
       <div class="val"><div class="px">${usd(r.price)}</div>${r.qty > 1 ? `<div class="qty">×${int(r.qty)} · ${usd(r.total)}</div>` : ""}</div>
       <div class="loc"><span class="pin"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
     </li>`).join("") : `<li class="empty">Nothing matches “${esc(S.q)}”.</li>`;
+  hydrate($("colList"));
 }
 
 function viewBinder(){
@@ -517,7 +645,7 @@ function viewBinder(){
   let slots = "";
   for (let s = 1; s <= 9; s++) {
     const r = onPage[s];
-    if (r) slots += `<div class="slot fill"><span class="sn">S${s}</span><span class="nm">${esc(r.name)}</span><span class="meta">${esc(r.set)}<br>${esc(r.num)}</span><span class="px">${usd(r.price)}</span></div>`;
+    if (r) slots += `<div class="slot fill tap" data-i="${r.i}"><span class="art"${picAttrs(r)}></span><span class="sn">S${s}</span><span class="nm">${esc(r.name)}</span><span class="meta">${esc(r.set)}<br>${esc(r.num)}</span><span class="px">${usd(r.price)}</span></div>`;
     else if (next && next.p === P && next.s === s) slots += `<div class="slot open next"><span class="sn">S${s}</span>Next open</div>`;
     else slots += `<div class="slot open"><span class="sn">S${s}</span>Open</div>`;
   }
@@ -548,7 +676,7 @@ function viewGrading(){
   ${secErr("grading","Grading")}
   <div class="grid2">${g.map(x => `
     <article class="gcard">
-      <div class="gtop"><div><h3 style="font-size:16px">${esc(x.name)}</h3><div class="note">${esc(x.set)} · ${esc(x.num)} · <span class="pin t-top"><i></i>${esc(x.housing)}</span></div></div><span class="pill ${pill(x.rec)}">${esc(x.rec || "—")}</span></div>
+      <div class="gtop"><div style="display:flex;gap:10px;min-width:0"><span class="thumb"${picAttrs({tier:"top", name:x.name, set:x.set, num:x.num})}></span><div><h3 style="font-size:16px">${esc(x.name)}</h3><div class="note">${esc(x.set)} · ${esc(x.num)} · <span class="pin t-top"><i></i>${esc(x.housing)}</span></div></div></div><span class="pill ${pill(x.rec)}">${esc(x.rec || "—")}</span></div>
       <div class="gtbl">
         <div><div class="k">Raw NM</div><div class="v">${usd(x.raw)}</div></div>
         <div><div class="k">PSA 10</div><div class="v">${usd(x.p10)}</div></div>
@@ -602,6 +730,8 @@ function setTab(t){
   window.scrollTo(0, 0);
 }
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+$("main").addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t && !e.target.closest("button")) openDetail(+t.dataset.i); });
+$("main").addEventListener("keydown", e => { const t = e.target.closest("[data-i]"); if (t && e.key === "Enter") openDetail(+t.dataset.i); });
 $("refresh").onclick = () => loadAll(true);
 setInterval(() => { if (!S.busy) $("stamp").textContent = ago(S.at.collection); }, 60000);
 boot();
