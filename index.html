@@ -255,7 +255,7 @@ const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit"
 // The Apps Script web app. "?data=1" returns the sheet as data; without it, the old all-in-one page.
 const API = "https://script.google.com/macros/s/AKfycbxkjs8M4ngqGeTfGU3787LDaHR_14qMyPYEdk3aiF5iLovlu1aQYs9Db_NTbfosv2jQCA/exec";
 const CACHE_KEY = "pkt-data";
-const KEYS = ["collection","storage","grading","log"];
+const KEYS = ["collection","storage","grading","log","history"];
 const TIERS = [
   {k:"top", label:"Top loaders", sub:"$20+ · penny sleeve + 35pt"},
   {k:"binder", label:"Binder", sub:"$2–19.99 · Vault X 9-pocket"},
@@ -489,6 +489,9 @@ function parse(key, rows){
   if (key === "grading") return body.map(r => ({name:r[0], set:r[1]||"", num:r[2]||"", raw:money(r[3]), p10:money(r[4]), p9:money(r[5]), p8:money(r[6]),
       net10:money(r[7]), net9:money(r[8]), rec:String(r[9]||"").toUpperCase(), ai:r[10]||"", hands:r[11]||"", send:r[12]||"", step:r[13]||"", grade:r[14]||"", housing:r[15]||""}));
   if (key === "log") return body.map(r => ({date:r[0], items:money(r[1]), value:money(r[2]), note:r[3]||""}));
+  // Price History: Date | Card / Item Name | Set / Series | Card # | Old Price ($) | New Price ($), one row per card the Sunday check re-prices
+  if (key === "history") return body.map(r => ({date:String(r[0]||"").trim(), name:r[1]||"", set:r[2]||"", num:r[3]||"",
+      old:money(r[4]), now:money(r[5]), hasOld:String(r[4]||"").trim() !== "" && String(r[5]||"").trim() !== ""}));
   return body;
 }
 
@@ -508,6 +511,7 @@ function apply(d){
   for (const k of KEYS) {
     const rows = d && d[k];
     if (Array.isArray(rows)) { S.data[k] = parse(k, rows); S.at[k] = at; S.err[k] = null; }
+    else if (k === "history") { S.data.history = null; S.err.history = null; } // optional tab: no history yet is normal
     else { S.err[k] = {code:"missing_tab", message:""}; }
   }
   S.mode = S.data.collection ? "ready" : "error";
@@ -593,6 +597,34 @@ function stats(){
   for (const r of c) { qty += r.qty; value += r.total; const b = t[r.tier]; b.qty += r.qty; b.value += r.total; b.rows++; }
   return {c, t, qty, value};
 }
+const dateVal = s => { const t = Date.parse(String(s || "").trim()); return isFinite(t) ? t : 0; };
+const shortDate = s => { const t = dateVal(s); return t ? new Date(t).toLocaleDateString("en-US", {month:"short", day:"numeric", timeZone:"UTC"}) : String(s || ""); };
+// Newest first: by Date Added, then by sheet order (rows added later sit lower in the sheet)
+const byNewest = (a,b) => dateVal(b.date) - dateVal(a.date) || b.i - a.i;
+// Finds the Collection row for a card named elsewhere (Grading, Price History): exact name first, then without stamp notes
+function findCard(name, num, set){
+  const c = S.data.collection || [], n = numKey(num), full = normName(name), base = normName(cardName(name)), st = normSet(set);
+  const tries = [r => normName(r.name) === full, r => normName(cardName(r.name)) === base];
+  for (const ok of tries) {
+    const hit = c.filter(r => ok(r) && numKey(r.num) === n);
+    if (hit.length) return hit.find(r => !st || normSet(r.set) === st) || hit[0];
+  }
+  return null;
+}
+// Price changes from the latest Sunday price check that logged per-card prices
+function movers(){
+  const H = (S.data.history || []).filter(h => h.date && h.name);
+  if (!H.length) return null;
+  const last = H.reduce((m, h) => dateVal(h.date) > dateVal(m) ? h.date : m, H[0].date);
+  const run = H.filter(h => h.date === last);
+  const ch = run.filter(h => h.hasOld && h.old > 0 && Math.abs(h.now - h.old) >= 0.005).map(h => {
+    const r = findCard(h.name, h.num, h.set);
+    return {h, r, d:h.now - h.old, pct:(h.now - h.old) / h.old};
+  });
+  return {date:last, checked:run.length,
+    up:ch.filter(x => x.d > 0).sort((a,b) => b.d - a.d).slice(0, 4),
+    down:ch.filter(x => x.d < 0).sort((a,b) => a.d - b.d).slice(0, 4)};
+}
 
 /* ---------- views ---------- */
 function viewOverview(){
@@ -631,6 +663,10 @@ function viewOverview(){
     <section class="panel"><h2>Value by set</h2><div class="bars">${setBars || '<p class="note">No singles yet.</p>'}</div></section>
   </div>
   <div class="grid2">
+    <section class="panel">${recentView(c)}</section>
+    <section class="panel">${moversView()}</section>
+  </div>
+  <div class="grid2">
     <section class="panel">
       <h2>To do</h2>
       <ul class="hits">
@@ -641,6 +677,27 @@ function viewOverview(){
     </section>
     <section class="panel"><h2>Value over time</h2>${logView()}</section>
   </div>`;
+}
+
+function recentView(c){
+  const rows = c.filter(r => !/\(count\)/i.test(r.name)).sort(byNewest).slice(0, 6);
+  const li = rows.map(r => `<li class="t-${r.tier} tap" data-i="${r.i}"><span class="thumb sm"${picAttrs(r)}></span><span class="nm">${esc(r.name)}</span><span class="px">${usd(r.price)}</span><span class="meta">${esc(r.set)}${r.num ? " · " + esc(r.num) : ""}${r.date ? " · added " + esc(shortDate(r.date)) : ""}</span></li>`).join("");
+  return `<div class="pager" style="margin-bottom:12px"><h2 style="margin:0">Recently added</h2>${rows.length ? '<button class="btn" type="button" data-go="collection" data-sort="newest">See all</button>' : ""}</div>
+    <ul class="hits pics">${li || '<li class="muted">Nothing added yet.</li>'}</ul>`;
+}
+
+function moversView(){
+  const m = movers();
+  const head = `<h2>Price movers</h2>`;
+  if (!m) return `${head}<p class="note" style="margin:0">Movers show up after the next Sunday price check, which will save each card's old and new price.</p>`;
+  const item = x => {
+    const r = x.r, tap = r ? ` tap" data-i="${r.i}` : "";
+    const pic = picAttrs(r || {tier:"binder", name:x.h.name, set:x.h.set, num:x.h.num});
+    return `<li class="t-${r ? r.tier : "binder"}${tap}"><span class="thumb sm"${pic}></span><span class="nm">${esc(x.h.name)}</span><span class="px ${x.d >= 0 ? "pos" : "neg"}">${x.d >= 0 ? "+" : "−"}${usd(Math.abs(x.d))}</span><span class="meta">${usd(x.h.old)} → ${usd(x.h.now)} · <span class="${x.d >= 0 ? "pos" : "neg"}">${x.d >= 0 ? "+" : "−"}${Math.abs(x.pct * 100).toFixed(0)}%</span></span></li>`;
+  };
+  const list = (t, a) => a.length ? `<div class="eyebrow" style="margin:4px 0 6px">${t}</div><ul class="hits pics">${a.map(item).join("")}</ul>` : "";
+  const body = list("Up", m.up) + (m.up.length && m.down.length ? '<div style="height:12px"></div>' : "") + list("Down", m.down);
+  return `${head}<p class="note" style="margin:-6px 0 12px">Price check on ${esc(shortDate(m.date))} · ${int(m.checked)} cards checked</p>${body || '<p class="note" style="margin:0">No prices changed in that check.</p>'}`;
 }
 
 function logView(){
@@ -674,7 +731,7 @@ function viewCollection(){
   return `<div class="toolbar">
     <label class="search" for="q"><span class="muted" aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Search name, set, number or location" value="${esc(S.q)}" autocomplete="off"></label>
     <div class="chips" role="group" aria-label="Filter">${FILTERS.map(f => `<button type="button" class="chip" data-filter="${f.k}" aria-pressed="${S.filter === f.k}">${["top","binder","bulk","sealed"].includes(f.k) ? `<i class="c-${f.k}"></i>` : ""}${f.label}</button>`).join("")}</div>
-    <div class="sortrow"><span id="count"></span><label>Sort <select id="sort"><option value="value">Highest value</option><option value="name">Name A–Z</option><option value="set">Set</option><option value="loc">Location</option></select></label></div>
+    <div class="sortrow"><span id="count"></span><label>Sort <select id="sort"><option value="value">Highest value</option><option value="newest">Newest first</option><option value="name">Name A–Z</option><option value="set">Set</option><option value="loc">Location</option></select></label></div>
   </div>
   <ul class="list" id="colList"></ul>`;
 }
@@ -687,6 +744,7 @@ function filtered(){
   });
   const by = {
     value: (a,b) => b.price - a.price || b.total - a.total,
+    newest: byNewest,
     name: (a,b) => a.name.localeCompare(b.name),
     set: (a,b) => a.set.localeCompare(b.set) || String(a.num).localeCompare(String(b.num), undefined, {numeric:true}),
     loc: (a,b) => a.loc.localeCompare(b.loc, undefined, {numeric:true})
@@ -750,9 +808,9 @@ function viewGrading(){
   const sign = n => `<span class="${n >= 0 ? "pos" : "neg"}">${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}</span>`;
   return `<p class="note" style="margin:0">GRADE pays even at a PSA 9. GAMBLE only pays at a PSA 10, so send it only if it looks flawless. Net figures are after the PSA fee, shipping and selling fees.</p>
   ${secErr("grading","Grading")}
-  <div class="grid2">${g.map(x => `
-    <article class="gcard">
-      <div class="gtop"><div style="display:flex;gap:10px;min-width:0"><span class="thumb"${picAttrs({tier:"top", name:x.name, set:x.set, num:x.num})}></span><div><h3 style="font-size:16px">${esc(x.name)}</h3><div class="note">${esc(x.set)} · ${esc(x.num)} · <span class="pin t-top"><i></i>${esc(x.housing)}</span></div></div></div><span class="pill ${pill(x.rec)}">${esc(x.rec || "—")}</span></div>
+  <div class="grid2">${g.map(x => { const r = findCard(x.name, x.num, x.set); return `
+    <article class="gcard${r ? ` tap" data-i="${r.i}" tabindex="0` : ""}">
+      <div class="gtop"><div style="display:flex;gap:10px;min-width:0"><span class="thumb"${picAttrs(r || {tier:"top", name:x.name, set:x.set, num:x.num})}></span><div><h3 style="font-size:16px">${esc(x.name)}</h3><div class="note">${esc(x.set)} · ${esc(x.num)} · <span class="pin t-top"><i></i>${esc(x.housing)}</span></div></div></div><span class="pill ${pill(x.rec)}">${esc(x.rec || "—")}</span></div>
       <div class="gtbl">
         <div><div class="k">Raw NM</div><div class="v">${usd(x.raw)}</div></div>
         <div><div class="k">PSA 10</div><div class="v">${usd(x.p10)}</div></div>
@@ -762,7 +820,7 @@ function viewGrading(){
         <div><div class="k">PSA 8</div><div class="v">${usd(x.p8)}</div></div>
       </div>
       <div class="steps"><span>Send: <b>${esc(x.send || "—")}</b></span>${x.ai ? `<span>AI screen: ${esc(x.ai)}</span>` : ""}${x.hands ? `<span>Hands-on: ${esc(x.hands)}</span>` : ""}${x.step ? `<span>Step: ${esc(x.step)}</span>` : ""}${x.grade ? `<span>Grade: <b>${esc(x.grade)}</b></span>` : ""}</div>
-    </article>`).join("")}</div>`;
+    </article>`; }).join("")}</div>`;
 }
 
 function viewStorage(){
@@ -787,6 +845,7 @@ function viewStorage(){
 function wire(){
   document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
     if (b.dataset.filter) { S.filter = b.dataset.filter; S.q = ""; }
+    if (b.dataset.sort) { S.sort = b.dataset.sort; S.filter = "all"; S.q = ""; }
     setTab(b.dataset.go);
   });
   document.querySelectorAll("[data-page]").forEach(b => b.onclick = () => { S.page = +b.dataset.page; render(); });

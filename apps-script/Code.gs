@@ -32,6 +32,7 @@ function getData() {
     storage: read('Storage'),
     grading: read('Grading'),
     log: read('Price & Value Logs'),
+    history: read('Price History'), // per-card old → new prices from the Sunday price check (optional)
     at: Date.now()
   };
 }
