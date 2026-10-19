@@ -430,6 +430,14 @@ function hydrate(root){
 }
 
 /* ---------- card details ---------- */
+// TCGplayer search for the current price: singles by "Name Number" (e.g. "Tyrunt 070"), sealed by name.
+function priceUrl(r){
+  if (!r || /\(count\)/i.test(r.name)) return "";
+  const num = String(r.num || "").split("/")[0].trim();
+  const base = r.tier === "sealed" ? r.name : cardName(r.name);
+  const q = (base + (r.tier !== "sealed" && num && !/mixed/i.test(num) ? " " + num : "")).replace(/[\[\]]/g, " ").replace(/\s+/g, " ").trim();
+  return q ? "https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&view=grid&q=" + encodeURIComponent(q) : "";
+}
 function openDetail(i){
   const r = (S.data.collection || [])[i];
   const d = $("detail");
@@ -444,6 +452,7 @@ function openDetail(i){
         <div><div class="k">Qty</div><div class="v">${int(r.qty)}</div></div>
         <div><div class="k">Total</div><div class="v">${usd(r.total)}</div></div>
       </div>
+      ${priceUrl(r) ? `<a class="btn primary" href="${priceUrl(r)}" target="_blank" rel="noopener" style="justify-content:center;text-decoration:none;padding:9px 12px">Check price on TCGplayer ↗</a>` : ""}
       <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
       <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
       ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : r.tier === "sealed" ? '<p class="note" style="margin:0">Shows your photo if you\'ve added one, otherwise the set logo.</p>' : ""}
