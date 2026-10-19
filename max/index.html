@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Max's Cards">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161D25" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="../icon.png">
+<link rel="icon" type="image/png" href="../icon-192.png">
+<title>Max's Pokémon Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<!-- All styles and code are shared with Jeff's app (../index.html): ../app.css and ../app.js -->
+<link rel="stylesheet" href="../app.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="hd">
+      <h1>Max's Pokémon Tracker</h1>
+      <span class="stamp" id="stamp"></span>
+      <button class="btn" id="refresh" type="button" aria-label="Refresh from Google Sheets">Refresh</button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-tab="overview" id="tab-overview">Overview</button>
+      <button class="tab" role="tab" data-tab="collection" id="tab-collection">Find a card</button>
+      <button class="tab" role="tab" data-tab="binder" id="tab-binder">Binder</button>
+      <button class="tab" role="tab" data-tab="grading" id="tab-grading">Grading</button>
+      <button class="tab" role="tab" data-tab="storage" id="tab-storage">Storage</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="main" aria-live="polite"></main>
+<dialog id="detail" aria-label="Card details"></dialog>
+
+<script>
+window.PKT = {
+  owner: "Max",
+  sheetName: "Pokemon tracker Max",
+  sheetId: "1iVcqwyHTghB8xhSzd1u59n703hd90oqGQTrHxeiBMnM",
+  who: "max",         // the Apps Script reads Max's sheet
+  photos: "photos/",  // max/photos/photos.json + Max's own photos
+  store: "pkt-max",   // keeps Max's saved data apart from Jeff's
+  fallback: false
+};
+</script>
+<script src="../app.js"></script>
+
+</body>
+</html>
