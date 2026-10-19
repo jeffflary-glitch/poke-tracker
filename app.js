@@ -13,7 +13,7 @@ const SHEET_ID = CFG.sheetId;
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit";
 // The Apps Script web app. "?data=1" returns the sheet as data; without it, the old all-in-one page.
 // A page can use its own Apps Script link (api) — Max's tracker has one — otherwise Jeff's is used.
-const API = CFG.api || "https://script.google.com/macros/s/AKfycbxkjs8M4ngqGeTfGU3787LDaHR_14qMyPYEdk3aiF5iLovlu1aQYs9Db_NTbfosv2jQCA/exec";
+const API = CFG.api || "https://script.google.com/macros/s/AKfycbwPHBji0cPxwD9_-YTLs3W25WNh9dL4M6P6rw5exU3hSZjCoGwA4DFxm9zxOVUFcEILaw/exec";
 const CACHE_KEY = CFG.store + "-data";
 const TAB_KEY = CFG.store + "-tab";
 const KEYS = ["collection","storage","grading","log","history"];
