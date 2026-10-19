@@ -255,4 +255,11 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .sacts{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
 .sacts li{border-left:4px solid var(--tc,var(--line));padding:6px 10px;background:var(--surface-2);border-radius:0 8px 8px 0;font-size:14px}
 .sacts li div{font-size:13px;color:var(--muted);margin-top:2px}
+.blines{display:flex;flex-direction:column;gap:10px}
+.bline{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.bhead{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+.sflds.b2{grid-template-columns:1fr 1fr}
+.field i{font-style:normal}
+.bmode{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bmode legend{padding:0;margin-bottom:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}

@@ -7,6 +7,9 @@
 //   2. Each card is looked up in TCGdex (free card database) to confirm it and get its TCGplayer market price.
 //   3. You check the list in the app, fix anything, then tap Add → rows are written to Collection (A–K)
 //      using the same storage rules as the chat skill, and $20+ cards also get a Grading row.
+//      Cheap commons/uncommons can instead be added to their set's bulk count row.
+// Bulk counts (no photo, no AI): "add 40 Journey Together non-foil" adds to that set's count row,
+// or starts one, e.g. "Journey Together non-foil bulk (count)" in Bulk Row 2 – Journey Together.
 //
 // Settings live in Project Settings → Script Properties (never in the app or on GitHub):
 //   ANTHROPIC_API_KEY  your Claude API key (sk-ant-…)
@@ -29,6 +32,7 @@ function doPost(e) {
     if (req.action === 'check') out = {ok: true, sheetId: scanSheetId_()};
     else if (req.action === 'identify') out = scanIdentify_(req.image, req.mediaType);
     else if (req.action === 'add') out = scanAdd_(req.cards, req.batch);
+    else if (req.action === 'bulk') out = scanBulkOnly_(req.entries, req.batch);
     else throw new Error('Unknown request.');
   } catch (err) {
     out = {error: String((err && err.message) || err), code: (err && err.code) || ''};
@@ -362,9 +366,10 @@ function scanAdd_(cards, batch) {
     const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
 
     // Work out every row first, so nothing is written if the binder is full.
-    const rows = [], grading = [], added = [];
+    const rows = [], grading = [], added = [], bulk = [];
     let slot = next.binder, buffer = next.buffer;
     for (const c of clean) {
+      if (c.bulk) { bulk.push({set: c.set, kind: c.bulkKind, qty: c.qty, mode: 'add', fromScan: true}); continue; }
       const base = [c.name, c.set, c.number, c.rarity, c.category, c.condition];
       const push = (qty, loc, prot, action) => {
         rows.push(base.concat([qty, c.price, date, loc, prot]));
@@ -396,6 +401,7 @@ function scanAdd_(cards, batch) {
 
     const r0 = scanFirstEmptyRow_(col);
     scanWriteRows_(col, r0, rows, {numCol: 3, dateCol: 9});
+    for (const b of scanBulk_(col, bulk, date)) added.push(b);
     if (grading.length) {
       const g = ss.getSheetByName('Grading');
       if (g) scanWriteRows_(g, scanFirstEmptyRow_(g), grading, {numCol: 3});
@@ -404,7 +410,7 @@ function scanAdd_(cards, batch) {
     const after = scanNextSpots_(ss);
     const out = {
       added: added,
-      rows: [r0, r0 + rows.length - 1],
+      rows: rows.length ? [r0, r0 + rows.length - 1] : [],
       grading: grading.length,
       next: {binder: after.binderText, buffer: after.bufferText, used: after.binder - 1}
     };
@@ -427,11 +433,98 @@ function scanClean_(c) {
   const qty = Math.max(1, Math.min(99, Math.round(Number(c.qty) || 1)));
   const set = String(c.set || '').trim();
   if (!set) throw new Error('Enter the set for ' + name + '.');
-  return {
+  const out = {
     name: name, set: set, number: String(c.number || '').trim(), rarity: String(c.rarity || '').trim(),
     category: cat, condition: cond, qty: qty, price: Math.round(price * 100) / 100,
-    foil: !!c.foil, basicEnergy: !!c.basicEnergy
+    foil: !!c.foil, basicEnergy: !!c.basicEnergy, bulk: false, bulkKind: ''
   };
+  // "Add to bulk count" only makes sense for cheap cards that live in the bulk box.
+  if (c.bulk && cat !== 'Sealed' && out.price < 2) {
+    out.bulk = true;
+    out.bulkKind = cat === 'Trainer' ? 'trainer'
+      : cat === 'Energy' && out.basicEnergy ? 'energy'
+      : c.finish === 'reverse' || /reverse/i.test(out.rarity) ? 'reverse'
+      : out.foil ? 'holo' : 'nonfoil';
+  }
+  return out;
+}
+
+/* ---------- bulk counts ---------- */
+// One count row per set and type, written the same way as the rows already in the sheet.
+const SCAN_BULK = {
+  nonfoil: {label: 'non-foil bulk', rarity: 'Common/Uncommon', cat: 'Mixed', row: 'Bulk Row 2', price: 0.15},
+  reverse: {label: 'reverse holo bulk', rarity: 'Common/Uncommon (Reverse Holo)', cat: 'Mixed', row: 'Bulk Row 1 Back', price: 0.25},
+  holo: {label: 'holo rare bulk', rarity: 'Rare (Holo)', cat: 'Pokémon', row: 'Bulk Row 1 Back', price: 0.20},
+  trainer: {label: 'trainer bulk', rarity: 'Common/Uncommon', cat: 'Trainer', loc: 'Bulk Row 3 – Trainers', price: 0.10},
+  energy: {label: 'basic energy', rarity: 'Common', cat: 'Energy', loc: 'Bulk Row 3 – Basic Energy', price: 0.05}
+};
+function scanBulkRow_(set, kind) {
+  const k = SCAN_BULK[kind];
+  if (!k) throw new Error('Unknown bulk type.');
+  // Trainers and basic Energy share one row each (Bulk Row 3 has no set dividers); the others are per set.
+  set = k.loc ? '' : String(set || '').trim();
+  const mixed = !set || /^mixed$/i.test(set);
+  if (mixed && !k.loc) throw new Error('Pick a set for the ' + k.label + ' count.');
+  const name = kind === 'energy' ? 'Basic Energy (count)' : kind === 'trainer' ? 'Trainer bulk (count)' : set + ' ' + k.label + ' (count)';
+  return {name: name, set: mixed ? 'Mixed' : set, kind: kind, k: k, loc: k.loc || (k.row + ' – ' + set)};
+}
+
+// entries: [{set, kind, qty, mode:"add"|"set", price?}] → adds to (or sets) the matching count row, or starts one.
+function scanBulk_(col, entries, date) {
+  if (!entries || !entries.length) return [];
+  const last = scanFirstEmptyRow_(col) - 1;
+  const vals = last >= 2 ? col.getRange(2, 1, last - 1, 8).getDisplayValues() : [];
+  const where = {};
+  vals.forEach((r, i) => { const k = scanNorm_(r[0]); if (k && /\(count\)/i.test(r[0]) && !(k in where)) where[k] = {row: i + 2, qty: Number(String(r[6]).replace(/[^0-9.\-]/g, '')) || 0}; });
+  let next = last + 1;
+  const out = [];
+  for (const e of entries) {
+    const b = scanBulkRow_(e.set, e.kind);
+    const qty = Math.max(0, Math.min(9999, Math.round(Number(e.qty) || 0)));
+    const mode = e.mode === 'set' ? 'set' : 'add';
+    if (mode === 'add' && !qty) continue;
+    const price = e.price === '' || e.price == null || !isFinite(Number(e.price)) ? null : Math.round(Number(e.price) * 100) / 100;
+    const key = scanNorm_(b.name), hit = where[key];
+    let now;
+    if (hit) {
+      now = mode === 'set' ? qty : hit.qty + qty;
+      col.getRange(hit.row, 7).setValue(now);
+      if (price != null && !e.fromScan) col.getRange(hit.row, 8).setValue(price);
+      hit.qty = now;
+    } else {
+      if (mode === 'set' && !qty) continue;
+      now = qty;
+      scanWriteRows_(col, next, [[b.name, b.set, 'Mixed', b.k.rarity, b.k.cat, 'NM', now, price != null && !e.fromScan ? price : b.k.price, date, b.loc, 'Raw (no sleeve)']], {numCol: 3, dateCol: 9});
+      where[key] = {row: next, qty: now};
+      next++;
+    }
+    out.push({name: b.name, set: b.set, number: 'Mixed', price: price != null && !e.fromScan ? price : b.k.price, qty: qty, loc: b.loc, bulk: true,
+      action: (b.k.loc ? 'No sleeve → ' + b.loc : 'Into the ' + b.set + ' ' + b.k.label + ' → ' + b.loc) + ' · count ' + (hit ? 'now ' : 'started at ') + now});
+  }
+  return out;
+}
+
+function scanBulkOnly_(entries, batch) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error('Nothing to count.');
+  if (entries.length > 40) throw new Error('Too many lines at once.');
+  const cache = CacheService.getScriptCache();
+  if (batch) { const done = cache.get('scan-batch-' + batch); if (done) return JSON.parse(done); }
+  entries.forEach(e => scanBulkRow_(e.set, e.kind)); // check every line before writing anything
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(scanSheetId_());
+    const col = ss.getSheetByName('Collection');
+    if (!col) throw new Error('The sheet has no Collection tab.');
+    const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
+    const added = scanBulk_(col, entries, date);
+    SpreadsheetApp.flush();
+    const out = {added: added, grading: 0, bulkOnly: true};
+    if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
+    return out;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // The Storage tab's "Next binder slot" and "Next top loader buffer #" cells, found by their labels.
@@ -467,4 +560,9 @@ function scanWriteRows_(sh, r0, rows, opts) {
   if (opts.numCol) sh.getRange(r0, opts.numCol, rows.length, 1).setNumberFormat('@'); // keeps "053/159" from turning into a date
   if (opts.dateCol) sh.getRange(r0, opts.dateCol, rows.length, 1).setNumberFormat('yyyy-mm-dd');
   sh.getRange(r0, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+// Run this from the editor (pick testScan → Run) to check the outside-connection permission: the log should say 200.
+function testScan() {
+  Logger.log(UrlFetchApp.fetch('https://api.tcgdex.net/v2/en/sets/sv07').getResponseCode());
 }

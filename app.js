@@ -619,7 +619,25 @@ function viewStorage(){
    prices → you check the list → "Add" writes the rows to this app's sheet with the same storage rules as the chat skill.
    The Claude API key never comes to the phone; it stays in Apps Script. The phone only keeps the passcode. */
 const PASS_KEY = CFG.store + "-pass";
-const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:""};
+const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add"};
+/* Bulk counts: one count row per set and type, like "Journey Together non-foil bulk (count)".
+   Trainers and basic Energy each share one row (Bulk Row 3 has no set dividers). Must match Scan.gs (SCAN_BULK). */
+const BULK = {
+  nonfoil: {label:"Commons & uncommons", row:"non-foil bulk", where:"Bulk Row 2", price:0.15},
+  reverse: {label:"Reverse holos (C/U)", row:"reverse holo bulk", where:"Bulk Row 1 Back", price:0.25},
+  holo: {label:"Holo rares", row:"holo rare bulk", where:"Bulk Row 1 Back", price:0.20},
+  trainer: {label:"Trainers", fixed:"Trainer bulk (count)", where:"Bulk Row 3 – Trainers", price:0.10},
+  energy: {label:"Basic Energy", fixed:"Basic Energy (count)", where:"Bulk Row 3 – Basic Energy", price:0.05}
+};
+const bulkName = (set, kind) => BULK[kind].fixed || (String(set || "").trim() + " " + BULK[kind].row + " (count)");
+function bulkNow(set, kind){
+  const n = normName(bulkName(set, kind));
+  const r = (S.data.collection || []).find(x => normName(x.name) === n);
+  return r ? r.qty : null;
+}
+// Which scanned cards default to "add to the bulk count": cheap commons/uncommons (normal or reverse holo), as Jeff counts those per set.
+const bulkByDefault = c => c.kind !== "sealed" && /^(common|uncommon)/i.test(c.rarity || "") && (c.finish === "normal" || c.finish === "reverse")
+  && isFinite(parseFloat(c.price)) && parseFloat(c.price) < 2;
 const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch(e) { return ""; } };
 const setPass = p => { try { p ? localStorage.setItem(PASS_KEY, p) : localStorage.removeItem(PASS_KEY); } catch(e) {} };
 
@@ -662,6 +680,8 @@ function routeOf(c){
   const p = parseFloat(c.price);
   if (c.kind === "sealed" || c.category === "Sealed") return {tier:"sealed", text:"Sealed shelf"};
   if (!isFinite(p) || String(c.price ?? "").trim() === "") return {tier:"other", text:"Needs a price"};
+  if (c.bulk && p < 2) return {tier:"bulk", text:"Add to " + (c.category === "Trainer" ? "Trainer bulk" : c.category === "Energy" && c.basicEnergy ? "Basic Energy"
+    : c.set + (c.finish === "reverse" || /reverse/i.test(c.rarity || "") ? " reverse holo" : c.foil ? " holo rare" : " non-foil")) + " count"};
   if (p >= 20) return {tier:"top", text:"Top loader · next buffer #"};
   if (p >= 2) return {tier:"binder", text:"Binder · next open slot"};
   if (c.foil) return {tier:"bulk", text:"Bulk Row 1 Back · sleeved"};
@@ -674,11 +694,11 @@ function openScan(){
   const d = $("scan");
   SC.err = "";
   if (SC.step === "done" || SC.step === "working" || SC.step === "adding") resetScan();
-  SC.step = getPass() ? (SC.cards.length ? "review" : "pick") : "pass";
+  SC.step = getPass() ? (SC.cards.length ? "review" : SC.step === "bulk" ? "bulk" : "pick") : "pass";
   renderScan();
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
 }
-function resetScan(){ Object.assign(SC, {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, batch:""}); }
+function resetScan(){ Object.assign(SC, {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, batch:"", lines:[], bmode:"add"}); }
 function closeScan(){
   const d = $("scan");
   if (d.close) d.close(); else d.removeAttribute("open");
@@ -701,6 +721,7 @@ function renderScan(){
       <input id="scam" type="file" accept="image/*" capture="environment" hidden>
       <label class="btn big" for="slib">Choose from photos</label>
       <input id="slib" type="file" accept="image/*" hidden>
+      <button class="btn big" type="button" id="sbulk">Add bulk counts <span class="muted">· no photo</span></button>
       <ul class="tips">
         <li>Up to 9 cards, flat on a plain background, in rows like a binder page.</li>
         <li>Good light and no glare on the bottom corners, where the set number is.</li>
@@ -724,14 +745,32 @@ function renderScan(){
         <button class="btn primary" type="button" id="sadd" ${!keep.length || missing.length ? "disabled" : ""}>Add ${keep.length} to sheet</button>
       </div>
       ${SC.cost ? `<p class="note" style="margin:0;text-align:center">This scan cost about ${SC.cost < 0.01 ? "under 1¢" : Math.round(SC.cost * 100) + "¢"}.</p>` : ""}`;
+  } else if (SC.step === "bulk") {
+    if (!SC.lines.length) SC.lines.push({kind:"nonfoil", set:"", qty:"", price:""});
+    const sets = [...new Set((S.data.collection || []).map(r => String(r.set || "").replace(/\s*\(.*\)\s*$/, "").trim()).filter(x => x && !/^mixed$/i.test(x)))].sort();
+    body = `${err}
+      <p class="note" style="margin:0">Count cards you've sorted into the bulk box. Each line adds to that set's count row in “${esc(CFG.sheetName)}”, or starts one.</p>
+      <datalist id="bsets">${sets.map(x => `<option value="${esc(x)}">`).join("")}</datalist>
+      <div class="blines">${SC.lines.map(bulkLineView).join("")}</div>
+      <button class="btn" type="button" id="badd" style="align-self:flex-start">+ Add another line</button>
+      <fieldset class="bmode"><legend class="note">Quantities</legend>
+        <label class="check"><input type="radio" name="bmode" value="add"${SC.bmode === "add" ? " checked" : ""}> Add to what's already counted</label>
+        <label class="check"><input type="radio" name="bmode" value="set"${SC.bmode === "set" ? " checked" : ""}> Replace the total (after a recount)</label>
+      </fieldset>
+      <div class="sbar">
+        <button class="btn" type="button" id="sback">Back</button>
+        <button class="btn primary" type="button" id="bsave" disabled>Save counts</button>
+      </div>`;
   } else if (SC.step === "done") {
     const r = SC.result || {added:[], next:{}};
-    body = `<div class="sdone"><h3>Added ${r.added.length} ${r.added.length === 1 ? "row" : "rows"} to “${esc(CFG.sheetName)}”</h3>
-      <ol class="sacts">${r.added.map(a => `<li class="t-${tierOf(a.loc)}"><b>${esc(a.name)}</b>${a.qty > 1 ? " ×" + int(a.qty) : ""} <span class="muted">${usd(a.price)}</span><div>${esc(a.action)}</div></li>`).join("")}</ol>
+    const counts = r.added.filter(a => a.bulk).length, rows = r.added.length - counts;
+    const title = r.bulkOnly ? `Updated ${counts} ${counts === 1 ? "count" : "counts"}` : `Added ${rows} ${rows === 1 ? "row" : "rows"}${counts ? ` and updated ${counts} ${counts === 1 ? "count" : "counts"}` : ""}`;
+    body = `<div class="sdone"><h3>${title} in “${esc(CFG.sheetName)}”</h3>
+      <ol class="sacts">${r.added.map(a => `<li class="t-${tierOf(a.loc)}"><b>${esc(a.name)}</b>${a.bulk ? ` <span class="muted">+${int(a.qty)}</span>` : `${a.qty > 1 ? " ×" + int(a.qty) : ""} <span class="muted">${usd(a.price)}</span>`}<div>${esc(a.action)}</div></li>`).join("")}</ol>
       ${r.grading ? `<p class="note" style="margin:0">${r.grading === 1 ? "1 card is" : r.grading + " cards are"} on the Grading tab. Add PSA prices there to get the grade-or-skip verdict.</p>` : ""}
-      <div class="spots"><div class="spot"><div class="eyebrow">Next binder slot</div><div class="v">${esc(r.next.binder || "–")}</div></div><div class="spot"><div class="eyebrow">Next buffer</div><div class="v">${esc(r.next.buffer || "–")}</div></div></div>
+      ${r.next ? `<div class="spots"><div class="spot"><div class="eyebrow">Next binder slot</div><div class="v">${esc(r.next.binder || "–")}</div></div><div class="spot"><div class="eyebrow">Next buffer</div><div class="v">${esc(r.next.buffer || "–")}</div></div></div>` : ""}
       </div>
-      <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">Scan more</button></div>`;
+      <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">${r.bulkOnly ? "More counts" : "Scan more"}</button></div>`;
   }
   d.innerHTML = head + `<div class="dbody sbody">${body}</div>`;
   wireScan();
@@ -757,6 +796,7 @@ function scanCardView(c, k){
       <label class="field"><span>Condition</span><select data-f="condition" data-k="${k}">${["NM","LP","MP","HP","DMG"].map(x => `<option${x === c.condition ? " selected" : ""}>${x}</option>`).join("")}</select></label>
     </div>
     <div class="sdest"><span class="pin t-${r.tier}"><i></i>${esc(r.text)}</span>${tcg ? `<a href="${tcg}" target="_blank" rel="noopener">TCGplayer ↗</a>` : ""}</div>
+    ${c.kind !== "sealed" ? `<label class="check sbulk"${parseFloat(c.price) < 2 ? "" : " hidden"}><input type="checkbox" data-f="bulk" data-k="${k}"${c.bulk ? " checked" : ""}> Add to the bulk count instead of its own row</label>` : ""}
     <ul class="snotes">
       ${c.priceNote ? `<li>${esc(c.priceNote)}${others ? " Other versions: " + others + "." : ""}</li>` : ""}
       ${c.note ? `<li>${esc(c.note)}</li>` : ""}
@@ -778,7 +818,7 @@ function wireScan(){
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on("sclose", closeScan);
   on("sfinish", closeScan);
-  on("smore", () => { resetScan(); renderScan(); });
+  on("smore", () => { const bulk = SC.result && SC.result.bulkOnly; resetScan(); if (bulk) SC.step = "bulk"; renderScan(); });
   on("sretake", () => { resetScan(); renderScan(); });
   on("sforget", () => { setPass(""); SC.step = "pass"; renderScan(); });
   on("sunlock", unlockScan);
@@ -786,12 +826,28 @@ function wireScan(){
   if (pi) { pi.onkeydown = e => { if (e.key === "Enter") unlockScan(); }; setTimeout(() => pi.focus(), 50); }
   ["scam", "slib"].forEach(id => { const el = $(id); if (el) el.onchange = () => el.files && el.files[0] && runScan(el.files[0]); });
   on("sadd", addScan);
+  on("sbulk", () => { SC.err = ""; SC.step = "bulk"; renderScan(); });
+  on("sback", () => { SC.err = ""; SC.step = "pick"; renderScan(); });
+  on("badd", () => { const last = SC.lines[SC.lines.length - 1] || {}; SC.lines.push({kind:last.kind || "nonfoil", set:BULK[last.kind] && !BULK[last.kind].fixed ? last.set || "" : "", qty:"", price:""}); renderScan(); const q = document.querySelectorAll("#scan [data-bf=qty]"); if (q.length) q[q.length - 1].focus(); });
+  on("bsave", saveBulk);
+  document.querySelectorAll("#scan [data-bdel]").forEach(b => b.onclick = () => { SC.lines.splice(+b.dataset.bdel, 1); renderScan(); });
+  document.querySelectorAll("#scan input[name=bmode]").forEach(r => r.onchange = () => { SC.bmode = r.value; SC.lines.forEach((_, i) => bulkHint(i)); });
+  document.querySelectorAll("#scan [data-bf]").forEach(el => {
+    const upd = () => {
+      const i = +el.closest("[data-b]").dataset.b, f = el.dataset.bf;
+      SC.lines[i][f] = el.value;
+      if (f === "kind") { renderScan(); return; }
+      bulkHint(i);
+    };
+    el.oninput = upd; el.onchange = upd;
+  });
+  if (SC.step === "bulk") SC.lines.forEach((_, i) => bulkHint(i));
   document.querySelectorAll("#scan [data-skip]").forEach(b => b.onclick = () => { const c = SC.cards[+b.dataset.skip]; c.skip = !c.skip; renderScan(); });
   document.querySelectorAll("#scan [data-f]").forEach(el => {
     const upd = () => {
       const c = SC.cards[+el.dataset.k], f = el.dataset.f;
       c[f] = el.type === "checkbox" ? el.checked : el.value;
-      if (f === "price" || f === "foil") refreshScanCard(+el.dataset.k);
+      if (f === "price" || f === "foil" || f === "bulk") refreshScanCard(+el.dataset.k);
       if (f !== "price" && f !== "qty") return;
       updateAddButton();
     };
@@ -806,6 +862,8 @@ function refreshScanCard(k){
   el.className = `scard t-${r.tier}`;
   const pin = el.querySelector(".sdest .pin");
   if (pin) { pin.className = `pin t-${r.tier}`; pin.innerHTML = `<i></i>${esc(r.text)}`; }
+  const bl = el.querySelector(".sbulk");
+  if (bl) bl.hidden = !(parseFloat(c.price) < 2);
   updateAddButton();
 }
 const missingText = m => m.length ? "Enter a price for " + esc(m.map(c => c.name).join(", ")) + " to add " + (m.length === 1 ? "it" : "them") + "." : "";
@@ -841,7 +899,7 @@ async function runScan(file){
     SC.photo = await shrinkPhoto(file);
     renderScan();
     const d = await scanCall({action:"identify", image:SC.photo.split(",")[1], mediaType:"image/jpeg"}, 120000);
-    SC.cards = (d.cards || []).map(c => Object.assign({skip:false}, c));
+    SC.cards = (d.cards || []).map(c => Object.assign({skip:false}, c, {bulk:bulkByDefault(c)}));
     SC.note = d.photoNote || ""; SC.cost = d.cost || 0;
     SC.batch = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     SC.step = "review";
@@ -859,12 +917,55 @@ async function addScan(){
   SC.err = ""; SC.step = "adding"; renderScan();
   try {
     const cards = keep.map(c => ({name:c.name, set:c.set, number:c.number, rarity:c.rarity, category:c.kind === "sealed" ? "Sealed" : c.category,
-      condition:c.condition, qty:c.qty, price:c.price, foil:!!c.foil, basicEnergy:!!c.basicEnergy}));
+      condition:c.condition, qty:c.qty, price:c.price, foil:!!c.foil, basicEnergy:!!c.basicEnergy, finish:c.finish, bulk:!!c.bulk && parseFloat(c.price) < 2}));
     SC.result = await scanCall({action:"add", cards, batch:SC.batch}, 90000);
     SC.added = true; SC.step = "done"; SC.cards = [];
   } catch(e) {
     if (e.code === "pass" || e.code === "locked") setPass("");
     SC.step = "review"; SC.err = e.message;
+  }
+  renderScan();
+}
+
+function bulkLineView(l, i){
+  const b = BULK[l.kind] || BULK.nonfoil;
+  return `<div class="bline" data-b="${i}">
+    <div class="bhead"><label class="field"><span>Type</span><select data-bf="kind">${Object.keys(BULK).map(k => `<option value="${k}"${k === l.kind ? " selected" : ""}>${esc(BULK[k].label)}</option>`).join("")}</select></label>
+      ${SC.lines.length > 1 ? `<button class="btn" type="button" data-bdel="${i}" aria-label="Remove this line" title="Remove this line">✕</button>` : ""}</div>
+    ${b.fixed ? "" : `<label class="field"><span>Set</span><input data-bf="set" list="bsets" value="${esc(l.set)}" placeholder="Start typing, e.g. Journey Together" autocomplete="off"></label>`}
+    <div class="sflds b2">
+      <label class="field"><span>How many</span><input data-bf="qty" type="number" min="0" max="9999" inputmode="numeric" value="${esc(l.qty)}"></label>
+      <label class="field"><span>$ per card <i class="muted">optional</i></span><input data-bf="price" inputmode="decimal" value="${esc(l.price)}" placeholder="${b.price.toFixed(2)}"></label>
+    </div>
+    <p class="note bnow" style="margin:0"></p>
+  </div>`;
+}
+// Shows what each line will do ("Now 86 → 100") and turns Save on when every line is complete.
+function bulkHint(i){
+  const l = SC.lines[i], el = document.querySelector(`#scan [data-b="${i}"] .bnow`);
+  const b = BULK[l.kind], q = parseInt(l.qty, 10), needSet = !b.fixed && !String(l.set || "").trim();
+  if (el) {
+    if (needSet) el.textContent = "Pick a set. Goes to " + b.where + " behind that set's divider.";
+    else {
+      const now = bulkNow(l.set, l.kind), name = bulkName(l.set, l.kind);
+      const after = isFinite(q) ? (SC.bmode === "set" ? q : (now || 0) + q) : null;
+      el.textContent = (now == null ? "New count row: " + name : "Now " + int(now) + " in " + name) + (after != null ? " → " + int(after) : "") + " · " + (b.fixed ? b.where : b.where + " – " + l.set.trim());
+    }
+  }
+  const okLine = x => { const n = parseInt(x.qty, 10); return (BULK[x.kind].fixed || String(x.set || "").trim()) && isFinite(n) && (SC.bmode === "set" ? n >= 0 : n > 0); };
+  const btn = $("bsave");
+  if (btn) btn.disabled = !SC.lines.length || !SC.lines.every(okLine);
+}
+async function saveBulk(){
+  const entries = SC.lines.map(l => ({set:BULK[l.kind].fixed ? "" : String(l.set || "").trim(), kind:l.kind, qty:parseInt(l.qty, 10) || 0, mode:SC.bmode, price:String(l.price || "").trim()}));
+  SC.err = ""; SC.step = "adding"; renderScan();
+  try {
+    SC.result = await scanCall({action:"bulk", entries, batch:Date.now().toString(36) + Math.random().toString(36).slice(2, 8)}, 60000);
+    SC.added = true; SC.step = "done"; SC.lines = [];
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") { setPass(""); SC.step = "pass"; }
+    else SC.step = "bulk";
+    SC.err = e.message;
   }
   renderScan();
 }
