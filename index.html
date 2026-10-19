@@ -218,9 +218,14 @@ a{color:var(--accent)}
 .slot .art.has-img ~ .sn{z-index:2;background:var(--surface);border-radius:4px;padding:0 4px;top:4px;right:4px}
 .slot .art.has-img ~ .px{z-index:2;position:absolute;left:4px;bottom:6px;background:var(--surface);border-radius:4px;padding:1px 5px;font-size:11px}
 .slot.fill::after{z-index:2}
-dialog#detail{border:0;padding:0;border-radius:16px;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto}
+/* Card details: kept clear of the phone's clock/notch and home bar; Close stays pinned at the top while scrolling */
+:root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
+dialog#detail{border:0;padding:0;border-radius:16px;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px));
+  position:fixed;inset:calc(var(--sat) + 16px) 0 calc(var(--sab) + 16px) 0;margin:auto;height:fit-content;
+  max-height:calc(100dvh - var(--sat) - var(--sab) - 32px);overflow:auto;overscroll-behavior:contain}
 dialog#detail::backdrop{background:rgba(5,10,15,.6)}
-.dhead{display:flex;justify-content:flex-end;padding:10px 10px 0}
+.dhead{display:flex;justify-content:flex-end;padding:10px;position:sticky;top:0;z-index:3;background:var(--surface)}
+.dhead .btn{padding:8px 16px;font-size:14px}
 .dimg{width:min(260px,68vw);aspect-ratio:63/88;margin:0 auto;border-radius:12px;overflow:hidden;background:var(--surface-2);position:relative}
 .dimg:not(.has-img)::after{content:"No picture found";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
 .dbody{padding:16px;display:flex;flex-direction:column;gap:12px}
