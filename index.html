@@ -293,7 +293,8 @@ function ago(ts){
 
 /* ---------- card pictures ---------- */
 /* Card pictures come from TCGdex (free card database), matched by set name + card number.
-   Sealed items use Jeff's own photo from sealed/photos.json if there is one, otherwise the set's logo.
+   Jeff's own photos in sealed/photos.json come first: sealed items by name, single cards by
+   "Name Number" (e.g. "Tyrunt 070"). Sealed items without a photo show the set's logo.
    The set list and each set's card list are saved on the phone so they load once. */
 const TCG = "https://api.tcgdex.net/v2/en";
 const IMG = {sets:null, logos:{}, photos:null, maps:{}, names:{}, loading:{}};
@@ -404,6 +405,9 @@ function hydrate(root){
   const need = new Set(), needNames = new Set();
   let wantSealed = false;
   root.querySelectorAll("[data-set][data-num]:not([data-done])").forEach(el => {
+    if (!IMG.photos) { wantSealed = true; return; }
+    const own = IMG.photos[normName(cardName(el.dataset.name) + " " + String(el.dataset.num).split("/")[0])];
+    if (own) { el.dataset.done = "1"; putImg(el, own, false); return; }
     let u = lookup(el.dataset.set, el.dataset.num);
     if (u === undefined) { need.add(el.dataset.set); return; }
     if (!u && el.dataset.name) {
