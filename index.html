@@ -202,6 +202,8 @@ a{color:var(--accent)}
 .thumb{width:44px;aspect-ratio:63/88;border-radius:4px;background:var(--surface-2);overflow:hidden;flex:none;position:relative}
 .thumb img,.art img,.dimg img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb.sm{width:34px}
+.logo img{object-fit:contain;padding:12%}
+.thumb.logo img{padding:6%}
 .thumb:not(.has-img)::after{content:"";position:absolute;inset:30% 25%;border-radius:50%;border:2px solid var(--line)}
 .tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tap:active{background:var(--surface-2)}
@@ -290,14 +292,17 @@ function ago(ts){
 }
 
 /* ---------- card pictures ---------- */
-/* Pictures come from TCGdex (free card database), matched by set name + card number.
+/* Card pictures come from TCGdex (free card database), matched by set name + card number.
+   Sealed items use Jeff's own photo from sealed/photos.json if there is one, otherwise the set's logo.
    The set list and each set's card list are saved on the phone so they load once. */
 const TCG = "https://api.tcgdex.net/v2/en";
-const IMG = {sets:null, maps:{}, loading:{}};
+const IMG = {sets:null, logos:{}, photos:null, maps:{}, loading:{}};
+const normName = s => String(s || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 const normSet = s => String(s || "").replace(/\(.*?\)/g, "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 const numKey = n => { const x = String(n || "").split("/")[0].trim().toLowerCase().replace(/\s+/g, ""); return /^\d+$/.test(x) ? String(+x) : x; };
 const hasPic = r => r.tier !== "sealed" && r.num && !/mixed/i.test(r.num) && !/\(count\)/i.test(r.name);
-const picAttrs = r => hasPic(r) ? ` data-set="${esc(r.set)}" data-num="${esc(r.num)}"` : "";
+const picAttrs = r => hasPic(r) ? ` data-set="${esc(r.set)}" data-num="${esc(r.num)}"`
+  : r.tier === "sealed" ? ` data-sealed="${esc(r.name)}" data-lset="${esc(r.set)}"` : "";
 function cacheGet(k, maxAge){ try { const v = JSON.parse(localStorage.getItem(k) || "null"); if (v && Date.now() - v.t < maxAge) return v.d; } catch(e) {} return null; }
 function cachePut(k, d){ try { localStorage.setItem(k, JSON.stringify({t:Date.now(), d})); } catch(e) {} }
 async function getJSON(url){ const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
@@ -317,15 +322,20 @@ function lookup(set, num){
 function loadSets(){
   if (IMG.sets) return Promise.resolve();
   return IMG.loading._sets || (IMG.loading._sets = (async () => {
-    let idx = cacheGet("pkt-tcg-sets", 7 * 864e5);
+    let idx = cacheGet("pkt-tcg-sets2", 7 * 864e5);
     if (!idx) {
       try {
-        idx = {};
-        for (const x of await getJSON(TCG + "/sets")) { const k = normSet(x.name); if (k && !idx[k]) idx[k] = x.id; }
-        cachePut("pkt-tcg-sets", idx);
-      } catch(e) { idx = {}; }
+        idx = {ids:{}, logos:{}};
+        for (const x of await getJSON(TCG + "/sets")) {
+          const k = normSet(x.name);
+          if (!k || idx.ids[k]) continue;
+          idx.ids[k] = x.id;
+          if (x.logo) idx.logos[k] = x.logo;
+        }
+        cachePut("pkt-tcg-sets2", idx);
+      } catch(e) { idx = {ids:{}, logos:{}}; }
     }
-    IMG.sets = idx;
+    IMG.sets = idx.ids; IMG.logos = idx.logos;
   })());
 }
 function loadSet(id){
@@ -342,24 +352,49 @@ function loadSet(id){
     IMG.maps[id] = m;
   })());
 }
-// Fills in every [data-set][data-num] picture box on screen; fetches what it doesn't know yet, then runs again.
+function loadPhotos(){
+  if (IMG.photos) return Promise.resolve();
+  return IMG.loading._photos || (IMG.loading._photos = fetch("sealed/photos.json", {cache:"no-cache"})
+    .then(r => r.ok ? r.json() : {}).catch(() => ({}))
+    .then(m => { IMG.photos = {}; for (const k in m) IMG.photos[normName(k)] = "sealed/" + m[k]; }));
+}
+// Sealed item: {url, logo} or null; undefined = not known yet
+function lookupSealed(name, set){
+  if (!IMG.photos || !IMG.sets) return undefined;
+  const ph = IMG.photos[normName(name)];
+  if (ph) return {url:ph, logo:false};
+  const lg = IMG.logos[normSet(set)];
+  return lg ? {url:lg + ".webp", logo:true} : null;
+}
+function putImg(el, url, logo){
+  const img = new Image();
+  img.alt = ""; img.decoding = "async"; img.loading = "lazy";
+  img.onload = () => el.classList.add("has-img");
+  if (logo) el.classList.add("logo");
+  img.src = url;
+  el.appendChild(img);
+}
+// Fills in every picture box on screen; fetches what it doesn't know yet, then runs again.
 function hydrate(root){
   root = root || document;
   const need = new Set();
+  let wantSealed = false;
   root.querySelectorAll("[data-set][data-num]:not([data-done])").forEach(el => {
     const u = lookup(el.dataset.set, el.dataset.num);
     if (u === undefined) { need.add(el.dataset.set); return; }
     el.dataset.done = "1";
-    if (u) {
-      const img = new Image();
-      img.alt = ""; img.decoding = "async"; img.loading = "lazy";
-      img.onload = () => el.classList.add("has-img");
-      img.src = u + "/" + (el.dataset.size || "low") + ".webp";
-      el.appendChild(img);
-    }
+    if (u) putImg(el, u + "/" + (el.dataset.size || "low") + ".webp", false);
   });
-  if (!need.size) return;
-  loadSets().then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; }))).then(() => hydrate(root));
+  root.querySelectorAll("[data-sealed]:not([data-done])").forEach(el => {
+    const u = lookupSealed(el.dataset.sealed, el.dataset.lset);
+    if (u === undefined) { wantSealed = true; return; }
+    el.dataset.done = "1";
+    if (u) putImg(el, u.url, u.logo);
+  });
+  if (!need.size && !wantSealed) return;
+  Promise.all([loadSets(), wantSealed ? loadPhotos() : null])
+    .then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; })))
+    .then(() => hydrate(root));
 }
 
 /* ---------- card details ---------- */
@@ -379,7 +414,7 @@ function openDetail(i){
       </div>
       <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
       <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
-      ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : ""}
+      ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : r.tier === "sealed" ? '<p class="note" style="margin:0">Shows your photo if you\'ve added one, otherwise the set logo.</p>' : ""}
     </div>`;
   $("dclose").onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
