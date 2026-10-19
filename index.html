@@ -296,12 +296,12 @@ function ago(ts){
    Sealed items use Jeff's own photo from sealed/photos.json if there is one, otherwise the set's logo.
    The set list and each set's card list are saved on the phone so they load once. */
 const TCG = "https://api.tcgdex.net/v2/en";
-const IMG = {sets:null, logos:{}, photos:null, maps:{}, loading:{}};
+const IMG = {sets:null, logos:{}, photos:null, maps:{}, names:{}, loading:{}};
 const normName = s => String(s || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 const normSet = s => String(s || "").replace(/\(.*?\)/g, "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 const numKey = n => { const x = String(n || "").split("/")[0].trim().toLowerCase().replace(/\s+/g, ""); return /^\d+$/.test(x) ? String(+x) : x; };
 const hasPic = r => r.tier !== "sealed" && r.num && !/mixed/i.test(r.num) && !/\(count\)/i.test(r.name);
-const picAttrs = r => hasPic(r) ? ` data-set="${esc(r.set)}" data-num="${esc(r.num)}"`
+const picAttrs = r => hasPic(r) ? ` data-set="${esc(r.set)}" data-num="${esc(r.num)}" data-name="${esc(r.name)}"`
   : r.tier === "sealed" ? ` data-sealed="${esc(r.name)}" data-lset="${esc(r.set)}"` : "";
 function cacheGet(k, maxAge){ try { const v = JSON.parse(localStorage.getItem(k) || "null"); if (v && Date.now() - v.t < maxAge) return v.d; } catch(e) {} return null; }
 function cachePut(k, d){ try { localStorage.setItem(k, JSON.stringify({t:Date.now(), d})); } catch(e) {} }
@@ -352,6 +352,30 @@ function loadSet(id){
     IMG.maps[id] = m;
   })());
 }
+// Backup match: same card name + number in any set (stamps like "(Eevee Stamp)" are ignored).
+const cardName = n => String(n || "").replace(/\(.*?\)/g, "").trim();
+function lookupByName(name, num){
+  const L = IMG.names[normName(cardName(name))];
+  return L === undefined ? undefined : (L[numKey(num)] || null);
+}
+function loadName(name){
+  const k = normName(cardName(name));
+  if (!k || IMG.names[k]) return Promise.resolve();
+  return IMG.loading["n:" + k] || (IMG.loading["n:" + k] = (async () => {
+    let m = cacheGet("pkt-tcg-name-" + k, 14 * 864e5);
+    if (!m) {
+      try {
+        m = {};
+        for (const c of await getJSON(TCG + "/cards?name=eq:" + encodeURIComponent(cardName(name)))) {
+          const nk = numKey(c.localId);
+          if (c.image && !m[nk]) m[nk] = c.image;
+        }
+        cachePut("pkt-tcg-name-" + k, m);
+      } catch(e) { m = {}; }
+    }
+    IMG.names[k] = m;
+  })());
+}
 function loadPhotos(){
   if (IMG.photos) return Promise.resolve();
   return IMG.loading._photos || (IMG.loading._photos = fetch("sealed/photos.json", {cache:"no-cache"})
@@ -377,11 +401,15 @@ function putImg(el, url, logo){
 // Fills in every picture box on screen; fetches what it doesn't know yet, then runs again.
 function hydrate(root){
   root = root || document;
-  const need = new Set();
+  const need = new Set(), needNames = new Set();
   let wantSealed = false;
   root.querySelectorAll("[data-set][data-num]:not([data-done])").forEach(el => {
-    const u = lookup(el.dataset.set, el.dataset.num);
+    let u = lookup(el.dataset.set, el.dataset.num);
     if (u === undefined) { need.add(el.dataset.set); return; }
+    if (!u && el.dataset.name) {
+      u = lookupByName(el.dataset.name, el.dataset.num);
+      if (u === undefined) { needNames.add(el.dataset.name); return; }
+    }
     el.dataset.done = "1";
     if (u) putImg(el, u + "/" + (el.dataset.size || "low") + ".webp", false);
   });
@@ -391,9 +419,9 @@ function hydrate(root){
     el.dataset.done = "1";
     if (u) putImg(el, u.url, u.logo);
   });
-  if (!need.size && !wantSealed) return;
+  if (!need.size && !needNames.size && !wantSealed) return;
   Promise.all([loadSets(), wantSealed ? loadPhotos() : null])
-    .then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; })))
+    .then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; }).concat([...needNames].map(loadName))))
     .then(() => hydrate(root));
 }
 
