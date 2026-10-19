@@ -2,6 +2,7 @@
 // Reads the "Pokemon tracker Max" sheet for Max's dashboard on GitHub Pages (/poke-tracker/max/).
 //   .../exec?data=1  → the sheet as data
 //   .../exec         → a short note, or the old page if this project has an Index.html file
+// Scanning cards (POST from the app) is in Scan.gs, which must sit in this same Apps Script project.
 
 const SHEET_ID = '1iVcqwyHTghB8xhSzd1u59n703hd90oqGQTrHxeiBMnM'; // Pokemon tracker Max
 
@@ -40,3 +41,6 @@ function getData() {
     at: Date.now()
   };
 }
+
+// Which sheet "Scan cards" writes to in this project (used by Scan.gs): always Max's.
+function scanSheetId_() { return SHEET_ID; }

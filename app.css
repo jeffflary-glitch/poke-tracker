@@ -201,14 +201,58 @@ a{color:var(--accent)}
 .slot.fill::after{z-index:2}
 /* Card details: kept clear of the phone's clock/notch and home bar; Close stays pinned at the top while scrolling */
 :root{--sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px)}
-dialog#detail{border:0;padding:0;border-radius:16px;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px));
+dialog#detail,dialog#scan{border:0;padding:0;border-radius:16px;background:var(--surface);color:var(--ink);width:min(420px,calc(100vw - 32px));
   position:fixed;inset:calc(var(--sat) + 16px) 0 calc(var(--sab) + 16px) 0;margin:auto;height:fit-content;
   max-height:calc(100dvh - var(--sat) - var(--sab) - 32px);overflow:auto;overscroll-behavior:contain}
-dialog#detail::backdrop{background:rgba(5,10,15,.6)}
+dialog#detail::backdrop,dialog#scan::backdrop{background:rgba(5,10,15,.6)}
 .dhead{display:flex;justify-content:flex-end;padding:10px;position:sticky;top:0;z-index:3;background:var(--surface)}
 .dhead .btn{padding:8px 16px;font-size:14px}
 .dimg{width:min(260px,68vw);aspect-ratio:63/88;margin:0 auto;border-radius:12px;overflow:hidden;background:var(--surface-2);position:relative}
 .dimg:not(.has-img)::after{content:"No picture found";position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px}
 .dbody{padding:16px;display:flex;flex-direction:column;gap:12px}
 .dbody h2{font-size:20px}
+/* Scan cards: header button, then a sheet that walks photo → check the list → add */
+#scanBtn{padding:6px 11px}
+#scanBtn svg{flex:none}
+@media (max-width:420px){.hd{gap:8px}.hd .stamp{display:none}}
+dialog#scan{width:min(480px,calc(100vw - 24px))}
+.shead{justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:10px 12px 10px 16px}
+.shead h2{font-size:18px}
+.sbody{gap:14px}
+.btn.big{justify-content:center;padding:12px 16px;font-size:15px;border-radius:12px}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:0}
+.field input,.field select{font:inherit;font-size:16px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+.field input:focus,.field select:focus{border-color:var(--accent);outline:none}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.check input{width:18px;height:18px}
+.tips{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);font-size:inherit;text-decoration:underline}
+.sphoto{width:100%;max-height:44vh;object-fit:contain;border-radius:10px;background:var(--surface-2)}
+.sphoto.sm{max-height:150px}
+.sbusy{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;font-weight:500}
+.scards{display:flex;flex-direction:column;gap:10px}
+.scard{border:1px solid var(--line);border-left:4px solid var(--tc,var(--line));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.scard.skip{opacity:.55;border-left-color:var(--line)}
+.scard.skip .nm{text-decoration:line-through}
+.stop{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start}
+.stop .thumb{width:48px}
+.stop .thumb:has(img)::after{display:none}
+.sinfo .nm{font-weight:600;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.sinfo .meta{font-size:12.5px;color:var(--muted)}
+.flag.bad{color:var(--bad)}
+.sflds{display:grid;grid-template-columns:1.2fr .8fr 1fr;gap:8px}
+.sdest{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px}
+.snotes{margin:0;padding-left:16px;font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.snotes:empty{display:none}
+.snotes .warn,.note.warn{color:var(--warn)}
+.sfix summary{font-size:13px;color:var(--accent);cursor:pointer}
+.sfix[open]{display:flex;flex-direction:column;gap:8px}
+.sfix .sflds{grid-template-columns:1fr 1fr}
+.sbar{display:flex;gap:10px;position:sticky;bottom:0;background:var(--surface);padding:10px 0 2px;margin-top:-4px}
+.sbar .btn{flex:1;justify-content:center;padding:11px 14px;font-size:15px;border-radius:12px}
+.sdone h3{font-size:18px;margin-bottom:10px}
+.sdone{display:flex;flex-direction:column;gap:12px}
+.sacts{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.sacts li{border-left:4px solid var(--tc,var(--line));padding:6px 10px;background:var(--surface-2);border-radius:0 8px 8px 0;font-size:14px}
+.sacts li div{font-size:13px;color:var(--muted);margin-top:2px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}

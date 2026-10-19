@@ -4,6 +4,8 @@
 //   .../exec?data=1&who=max  → "Pokemon tracker Max" as data (Max's app, /poke-tracker/max/)
 //   .../exec                 → the old all-in-one page (Index.html), kept as a backup
 // Only the sheets listed below can be read.
+// Scanning cards (POST from the app) is in Scan.gs, which must sit in this same Apps Script project.
+// Scans from Jeff's app always go to "Pokemon tracker Jeff" (see scanSheetId_ below).
 
 const SHEETS = {
   jeff: '143nfwKic9pxbT8e3BtbWnm3pWjFA7IvGOD8aVY8ILy0', // Pokemon tracker Jeff
@@ -45,3 +47,6 @@ function getData(id) {
     at: Date.now()
   };
 }
+
+// Which sheet "Scan cards" writes to in this project (used by Scan.gs).
+function scanSheetId_() { return SHEETS.jeff; }

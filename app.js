@@ -614,6 +614,275 @@ function viewStorage(){
   </section>`;
 }
 
+/* ---------- scan cards ---------- */
+/* "Scan" in the header: take a photo → the Apps Script (Scan.gs) asks Claude to read the cards and looks up
+   prices → you check the list → "Add" writes the rows to this app's sheet with the same storage rules as the chat skill.
+   The Claude API key never comes to the phone; it stays in Apps Script. The phone only keeps the passcode. */
+const PASS_KEY = CFG.store + "-pass";
+const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:""};
+const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch(e) { return ""; } };
+const setPass = p => { try { p ? localStorage.setItem(PASS_KEY, p) : localStorage.removeItem(PASS_KEY); } catch(e) {} };
+
+async function scanCall(body, ms){
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms || 60000);
+  try {
+    // Sent as plain text so the browser doesn't need Apps Script's permission first (no CORS preflight).
+    const res = await fetch(API, {method:"POST", body:JSON.stringify(Object.assign({pass:getPass()}, body)), signal:ctl.signal});
+    if (!res.ok) throw new Error("The scanner answered with error " + res.status + ".");
+    const d = await res.json().catch(() => { throw new Error("The scanner isn't set up yet. Scan.gs needs to be added in Apps Script and deployed as a new version."); });
+    if (d && d.error) { const e = new Error(d.error); e.code = d.code; throw e; }
+    return d;
+  } catch(e) {
+    if (e && e.name === "AbortError") throw new Error("That took too long. Check your connection, or try a photo with fewer cards.");
+    if (e instanceof TypeError) throw new Error("Couldn't reach the scanner. Check your connection and try again.");
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+// Shrinks the photo on the phone first (long side 2576px, the most Claude reads) so it uploads quickly.
+function shrinkPhoto(file){
+  return new Promise((ok, fail) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const max = 2576, k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL("image/jpeg", 0.88));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("That photo couldn't be opened. Try taking it again.")); };
+    img.src = url;
+  });
+}
+
+// Where a card will go, from its price (the exact slot is decided when it's added).
+function routeOf(c){
+  const p = parseFloat(c.price);
+  if (c.kind === "sealed" || c.category === "Sealed") return {tier:"sealed", text:"Sealed shelf"};
+  if (!isFinite(p) || String(c.price ?? "").trim() === "") return {tier:"other", text:"Needs a price"};
+  if (p >= 20) return {tier:"top", text:"Top loader · next buffer #"};
+  if (p >= 2) return {tier:"binder", text:"Binder · next open slot"};
+  if (c.foil) return {tier:"bulk", text:"Bulk Row 1 Back · sleeved"};
+  if (c.category === "Trainer") return {tier:"bulk", text:"Bulk Row 3 · Trainers"};
+  if (c.category === "Energy" && c.basicEnergy) return {tier:"bulk", text:"Bulk Row 3 · Basic Energy"};
+  return {tier:"bulk", text:"Bulk Row 2 · " + c.set};
+}
+
+function openScan(){
+  const d = $("scan");
+  SC.err = "";
+  if (SC.step === "done" || SC.step === "working" || SC.step === "adding") resetScan();
+  SC.step = getPass() ? (SC.cards.length ? "review" : "pick") : "pass";
+  renderScan();
+  if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+}
+function resetScan(){ Object.assign(SC, {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, batch:""}); }
+function closeScan(){
+  const d = $("scan");
+  if (d.close) d.close(); else d.removeAttribute("open");
+  if (SC.added) { SC.added = false; loadAll(); } // show the new rows
+}
+
+function renderScan(){
+  const d = $("scan");
+  const head = `<div class="dhead shead"><h2>Scan cards</h2><button class="btn" type="button" id="sclose">Close</button></div>`;
+  const err = SC.err ? `<div class="secerr" role="alert">${esc(SC.err)}</div>` : "";
+  let body = "";
+  if (SC.step === "pass") {
+    body = `<p class="note" style="margin:0">Enter the scanner passcode once on this phone. It's set in Apps Script, so only people you give it to can scan into “${esc(CFG.sheetName)}”.</p>
+      ${err}
+      <label class="field"><span>Passcode</span><input id="spass" type="password" autocomplete="current-password" enterkeyhint="go"></label>
+      <button class="btn primary big" type="button" id="sunlock">Unlock scanner</button>`;
+  } else if (SC.step === "pick") {
+    body = `${err}
+      <label class="btn primary big" for="scam">Take a photo</label>
+      <input id="scam" type="file" accept="image/*" capture="environment" hidden>
+      <label class="btn big" for="slib">Choose from photos</label>
+      <input id="slib" type="file" accept="image/*" hidden>
+      <ul class="tips">
+        <li>Up to 9 cards, flat on a plain background, in rows like a binder page.</li>
+        <li>Good light and no glare on the bottom corners, where the set number is.</li>
+        <li>Nothing is added until you check the list and tap Add.</li>
+      </ul>
+      <p class="note" style="margin:0">Saves to “${esc(CFG.sheetName)}”. <button class="linkbtn" type="button" id="sforget">Forget passcode on this phone</button></p>`;
+  } else if (SC.step === "working" || SC.step === "adding") {
+    body = `${SC.photo ? `<img class="sphoto" src="${SC.photo}" alt="Your photo">` : ""}
+      <p class="sbusy"><span class="spin" aria-hidden="true"></span> ${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p>
+      <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–40 seconds." : ""}</p>`;
+  } else if (SC.step === "review") {
+    const keep = SC.cards.filter(c => !c.skip);
+    const missing = keep.filter(c => !isFinite(parseFloat(c.price)) || String(c.price ?? "").trim() === "");
+    body = `${SC.photo ? `<img class="sphoto sm" src="${SC.photo}" alt="Your photo">` : ""}
+      ${SC.note ? `<div class="secerr">${esc(SC.note)}</div>` : ""}${err}
+      ${SC.cards.length ? `<p class="note" style="margin:0">Found ${SC.cards.length} ${SC.cards.length === 1 ? "item" : "items"}. Check each one, fix anything that's off, then add.</p>` : `<p class="note" style="margin:0">No cards were found in that photo. Try again closer up, with good light.</p>`}
+      <div class="scards">${SC.cards.map(scanCardView).join("")}</div>
+      <p class="note warn" id="smissing" style="margin:0"${missing.length ? "" : " hidden"}>${missingText(missing)}</p>
+      <div class="sbar">
+        <button class="btn" type="button" id="sretake">Retake</button>
+        <button class="btn primary" type="button" id="sadd" ${!keep.length || missing.length ? "disabled" : ""}>Add ${keep.length} to sheet</button>
+      </div>
+      ${SC.cost ? `<p class="note" style="margin:0;text-align:center">This scan cost about ${SC.cost < 0.01 ? "under 1¢" : Math.round(SC.cost * 100) + "¢"}.</p>` : ""}`;
+  } else if (SC.step === "done") {
+    const r = SC.result || {added:[], next:{}};
+    body = `<div class="sdone"><h3>Added ${r.added.length} ${r.added.length === 1 ? "row" : "rows"} to “${esc(CFG.sheetName)}”</h3>
+      <ol class="sacts">${r.added.map(a => `<li class="t-${tierOf(a.loc)}"><b>${esc(a.name)}</b>${a.qty > 1 ? " ×" + int(a.qty) : ""} <span class="muted">${usd(a.price)}</span><div>${esc(a.action)}</div></li>`).join("")}</ol>
+      ${r.grading ? `<p class="note" style="margin:0">${r.grading === 1 ? "1 card is" : r.grading + " cards are"} on the Grading tab. Add PSA prices there to get the grade-or-skip verdict.</p>` : ""}
+      <div class="spots"><div class="spot"><div class="eyebrow">Next binder slot</div><div class="v">${esc(r.next.binder || "–")}</div></div><div class="spot"><div class="eyebrow">Next buffer</div><div class="v">${esc(r.next.buffer || "–")}</div></div></div>
+      </div>
+      <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">Scan more</button></div>`;
+  }
+  d.innerHTML = head + `<div class="dbody sbody">${body}</div>`;
+  wireScan();
+}
+
+function scanCardView(c, k){
+  const r = routeOf(c), conf = c.confidence === "low" ? "Check this one" : c.confidence === "medium" ? "Fairly sure" : "";
+  const tcg = priceUrl({name:c.name, num:c.number, tier:c.kind === "sealed" ? "sealed" : "binder"});
+  const others = (c.others || []).map(o => `${esc(o.label)} ${usd(o.price)}`).join(" · ");
+  return `<article class="scard${c.skip ? " skip" : ""} t-${r.tier}" data-k="${k}">
+    <div class="stop">
+      <span class="thumb">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : ""}</span>
+      <div class="sinfo">
+        <div class="nm">${esc(c.name)} ${conf ? `<span class="flag${c.confidence === "low" ? " bad" : ""}">${conf}</span>` : ""}</div>
+        <div class="meta">${esc(c.set)}${c.number ? " · " + esc(c.number) : ""}${c.rarity ? " · " + esc(c.rarity) : ""}</div>
+      </div>
+      <button class="btn" type="button" data-skip="${k}" aria-label="${c.skip ? "Include" : "Leave out"} ${esc(c.name)}">${c.skip ? "Include" : "Leave out"}</button>
+    </div>
+    ${c.skip ? "" : `
+    <div class="sflds">
+      <label class="field"><span>Price $</span><input data-f="price" data-k="${k}" inputmode="decimal" value="${c.price == null ? "" : esc(c.price)}" placeholder="0.00"></label>
+      <label class="field"><span>Qty</span><input data-f="qty" data-k="${k}" type="number" min="1" max="99" inputmode="numeric" value="${esc(c.qty)}"></label>
+      <label class="field"><span>Condition</span><select data-f="condition" data-k="${k}">${["NM","LP","MP","HP","DMG"].map(x => `<option${x === c.condition ? " selected" : ""}>${x}</option>`).join("")}</select></label>
+    </div>
+    <div class="sdest"><span class="pin t-${r.tier}"><i></i>${esc(r.text)}</span>${tcg ? `<a href="${tcg}" target="_blank" rel="noopener">TCGplayer ↗</a>` : ""}</div>
+    <ul class="snotes">
+      ${c.priceNote ? `<li>${esc(c.priceNote)}${others ? " Other versions: " + others + "." : ""}</li>` : ""}
+      ${c.note ? `<li>${esc(c.note)}</li>` : ""}
+      ${(c.checks || []).map(x => `<li class="warn">${esc(x)}</li>`).join("")}
+    </ul>
+    <details class="sfix"><summary>Fix name, set or number</summary>
+      <label class="field"><span>Name</span><input data-f="name" data-k="${k}" value="${esc(c.name)}"></label>
+      <label class="field"><span>Set</span><input data-f="set" data-k="${k}" value="${esc(c.set)}"></label>
+      <div class="sflds">
+        <label class="field"><span>Card #</span><input data-f="number" data-k="${k}" value="${esc(c.number)}"></label>
+        <label class="field"><span>Rarity</span><input data-f="rarity" data-k="${k}" value="${esc(c.rarity)}"></label>
+      </div>
+      <label class="check"><input type="checkbox" data-f="foil" data-k="${k}"${c.foil ? " checked" : ""}> Has foil (holo or reverse holo)</label>
+    </details>`}
+  </article>`;
+}
+
+function wireScan(){
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on("sclose", closeScan);
+  on("sfinish", closeScan);
+  on("smore", () => { resetScan(); renderScan(); });
+  on("sretake", () => { resetScan(); renderScan(); });
+  on("sforget", () => { setPass(""); SC.step = "pass"; renderScan(); });
+  on("sunlock", unlockScan);
+  const pi = $("spass");
+  if (pi) { pi.onkeydown = e => { if (e.key === "Enter") unlockScan(); }; setTimeout(() => pi.focus(), 50); }
+  ["scam", "slib"].forEach(id => { const el = $(id); if (el) el.onchange = () => el.files && el.files[0] && runScan(el.files[0]); });
+  on("sadd", addScan);
+  document.querySelectorAll("#scan [data-skip]").forEach(b => b.onclick = () => { const c = SC.cards[+b.dataset.skip]; c.skip = !c.skip; renderScan(); });
+  document.querySelectorAll("#scan [data-f]").forEach(el => {
+    const upd = () => {
+      const c = SC.cards[+el.dataset.k], f = el.dataset.f;
+      c[f] = el.type === "checkbox" ? el.checked : el.value;
+      if (f === "price" || f === "foil") refreshScanCard(+el.dataset.k);
+      if (f !== "price" && f !== "qty") return;
+      updateAddButton();
+    };
+    el.oninput = upd; el.onchange = upd;
+  });
+}
+// Updates one card's "where it goes" and the Add button without redrawing (keeps the keyboard open while typing).
+function refreshScanCard(k){
+  const c = SC.cards[k], el = document.querySelector(`#scan .scard[data-k="${k}"]`);
+  if (!el) return;
+  const r = routeOf(c);
+  el.className = `scard t-${r.tier}`;
+  const pin = el.querySelector(".sdest .pin");
+  if (pin) { pin.className = `pin t-${r.tier}`; pin.innerHTML = `<i></i>${esc(r.text)}`; }
+  updateAddButton();
+}
+const missingText = m => m.length ? "Enter a price for " + esc(m.map(c => c.name).join(", ")) + " to add " + (m.length === 1 ? "it" : "them") + "." : "";
+function updateAddButton(){
+  const b = $("sadd");
+  if (!b) return;
+  const keep = SC.cards.filter(c => !c.skip);
+  const missing = keep.filter(c => !isFinite(parseFloat(c.price)) || String(c.price ?? "").trim() === "");
+  b.disabled = !keep.length || missing.length > 0;
+  const m = $("smissing");
+  if (m) { m.innerHTML = missingText(missing); m.hidden = !missing.length; }
+}
+
+async function unlockScan(){
+  const p = ($("spass") || {}).value || "";
+  if (!p.trim()) { SC.err = "Type the passcode first."; renderScan(); return; }
+  setPass(p.trim());
+  const btn = $("sunlock"); if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin" aria-hidden="true"></span> Checking'; }
+  try {
+    const d = await scanCall({action:"check"}, 30000);
+    if (d.sheetId && d.sheetId !== SHEET_ID) { setPass(""); throw new Error("This app's data link points at a different sheet. Nothing was saved."); }
+    SC.err = ""; SC.step = "pick";
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") setPass("");
+    SC.err = e.message;
+  }
+  renderScan();
+}
+
+async function runScan(file){
+  SC.err = ""; SC.step = "working"; SC.photo = ""; renderScan();
+  try {
+    SC.photo = await shrinkPhoto(file);
+    renderScan();
+    const d = await scanCall({action:"identify", image:SC.photo.split(",")[1], mediaType:"image/jpeg"}, 120000);
+    SC.cards = (d.cards || []).map(c => Object.assign({skip:false}, c));
+    SC.note = d.photoNote || ""; SC.cost = d.cost || 0;
+    SC.batch = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    SC.step = "review";
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") { setPass(""); SC.step = "pass"; }
+    else SC.step = "pick";
+    SC.err = e.message;
+  }
+  renderScan();
+}
+
+async function addScan(){
+  const keep = SC.cards.filter(c => !c.skip);
+  if (!keep.length) return;
+  SC.err = ""; SC.step = "adding"; renderScan();
+  try {
+    const cards = keep.map(c => ({name:c.name, set:c.set, number:c.number, rarity:c.rarity, category:c.kind === "sealed" ? "Sealed" : c.category,
+      condition:c.condition, qty:c.qty, price:c.price, foil:!!c.foil, basicEnergy:!!c.basicEnergy}));
+    SC.result = await scanCall({action:"add", cards, batch:SC.batch}, 90000);
+    SC.added = true; SC.step = "done"; SC.cards = [];
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") setPass("");
+    SC.step = "review"; SC.err = e.message;
+  }
+  renderScan();
+}
+
+function initScan(){
+  if (!$("refresh") || $("scanBtn")) return;
+  const b = document.createElement("button");
+  b.className = "btn primary"; b.id = "scanBtn"; b.type = "button";
+  b.setAttribute("aria-label", "Scan cards with the camera");
+  b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Scan';
+  b.onclick = openScan;
+  $("refresh").before(b);
+  const d = document.createElement("dialog");
+  d.id = "scan"; d.setAttribute("aria-label", "Scan cards");
+  d.addEventListener("cancel", e => { if (SC.step === "working" || SC.step === "adding") e.preventDefault(); else { e.preventDefault(); closeScan(); } });
+  document.body.appendChild(d);
+}
+
 /* ---------- events ---------- */
 function wire(){
   document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
@@ -642,4 +911,5 @@ $("main").addEventListener("click", e => { const t = e.target.closest("[data-i]"
 $("main").addEventListener("keydown", e => { const t = e.target.closest("[data-i]"); if (t && e.key === "Enter") openDetail(+t.dataset.i); });
 $("refresh").onclick = () => loadAll(true);
 setInterval(() => { if (!S.busy) $("stamp").textContent = ago(S.at.collection); }, 60000);
+initScan();
 boot();
