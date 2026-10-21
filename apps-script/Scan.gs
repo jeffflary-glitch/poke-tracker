@@ -44,7 +44,7 @@ function doPost(e) {
 // Wrong passcodes are counted; after 10 in an hour, scanning is locked for the rest of that hour.
 function scanCheckPass_(pass) {
   const want = PropertiesService.getScriptProperties().getProperty('SCAN_PASSCODE');
-  if (!want) throw scanErr_('Scanning is not set up yet: add SCAN_PASSCODE in Apps Script → Project Settings → Script Properties.', 'setup');
+  if (!want) throw new Error('Scanning is not set up yet: add SCAN_PASSCODE in Apps Script → Project Settings → Script Properties.');
   const cache = CacheService.getScriptCache();
   const fails = Number(cache.get('scan-fails') || 0);
   if (fails >= 10) throw scanErr_('Too many wrong passcodes. Scanning is locked for up to an hour.', 'locked');
@@ -62,14 +62,10 @@ function scanIdentify_(image, mediaType) {
   mediaType = /^image\/(jpeg|png|webp)$/.test(mediaType) ? mediaType : 'image/jpeg';
 
   const ai = scanAskClaude_(image, mediaType);
-  const today = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
-  const cards = (ai.result.cards || []).map(c => scanEnrich_(c));
   return {
-    cards: cards,
+    cards: (ai.result.cards || []).map(scanEnrich_),
     photoNote: ai.result.photoNote || '',
-    date: today,
-    cost: ai.cost,
-    model: SCAN_MODEL
+    cost: ai.cost
   };
 }
 
@@ -80,7 +76,6 @@ const SCAN_SYSTEM = [
   'For each card:',
   '- name: exactly as printed, including "ex", "V", "VMAX", "VSTAR" and owner prefixes such as "Team Rocket\'s" or "Iono\'s".',
   '- set: the full English set name as TCGplayer and TCGdex write it, e.g. "Stellar Crown", "Journey Together", "Destined Rivals", "Prismatic Evolutions", "SWSH Black Star Promos", "Scarlet & Violet Black Star Promos". Work it out from the set symbol, the printed set code and the card number.',
-  '- setCode: the printed set code or abbreviation if you can see one (e.g. "SCR", "JTG"), otherwise "".',
   '- number: exactly as printed in the bottom corner, e.g. "053/159", "SWSH085", "TG05/TG30", "129".',
   '- rarity: one of Common, Uncommon, Rare, Holo Rare, Double Rare, Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, ACE SPEC Rare, Shiny Rare, Promo, or the closest older rarity name. Do not add "(Reverse Holo)" here; use finish instead.',
   '- category: "Pokémon", "Trainer", "Energy", or "Sealed".',
@@ -110,7 +105,6 @@ const SCAN_SCHEMA = {
           kind: {type: 'string', enum: ['card', 'sealed']},
           name: {type: 'string'},
           set: {type: 'string'},
-          setCode: {type: 'string'},
           number: {type: 'string'},
           rarity: {type: 'string'},
           category: {type: 'string', enum: ['Pokémon', 'Trainer', 'Energy', 'Sealed']},
@@ -121,7 +115,7 @@ const SCAN_SCHEMA = {
           confidence: {type: 'string', enum: ['high', 'medium', 'low']},
           note: {type: 'string'}
         },
-        required: ['kind', 'name', 'set', 'setCode', 'number', 'rarity', 'category', 'basicEnergy', 'finish', 'foil', 'condition', 'confidence', 'note'],
+        required: ['kind', 'name', 'set', 'number', 'rarity', 'category', 'basicEnergy', 'finish', 'foil', 'condition', 'confidence', 'note'],
         additionalProperties: false
       }
     },
@@ -133,7 +127,7 @@ const SCAN_SCHEMA = {
 
 function scanAskClaude_(image, mediaType) {
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  if (!key) throw scanErr_('Scanning is not set up yet: add ANTHROPIC_API_KEY in Apps Script → Project Settings → Script Properties.', 'setup');
+  if (!key) throw new Error('Scanning is not set up yet: add ANTHROPIC_API_KEY in Apps Script → Project Settings → Script Properties.');
   const body = {
     model: SCAN_MODEL,
     max_tokens: 8000,
@@ -161,9 +155,9 @@ function scanAskClaude_(image, mediaType) {
   try { data = JSON.parse(res.getContentText()); } catch (e) {}
   if (code !== 200) {
     const m = (data.error && data.error.message) || ('error ' + code);
-    if (code === 401) throw scanErr_('The Claude API key was rejected. Check ANTHROPIC_API_KEY in Script Properties.', 'setup');
+    if (code === 401) throw new Error('The Claude API key was rejected. Check ANTHROPIC_API_KEY in Script Properties.');
     if (code === 429 || code === 529) throw new Error('Claude is busy right now. Try again in a minute.');
-    if (/credit balance/i.test(m)) throw scanErr_('Your Claude API credit has run out. Add credit in the Claude Console (Billing).', 'setup');
+    if (/credit balance/i.test(m)) throw new Error('Your Claude API credit has run out. Add credit in the Claude Console (Billing).');
     throw new Error('Claude answered with an error: ' + m);
   }
   if (data.stop_reason === 'refusal') throw new Error('Claude could not read this photo. Try another one.');
@@ -247,8 +241,7 @@ function scanFindCard_(c) {
 const SCAN_VARIANTS = {
   normal: ['normal', 'unlimited'],
   holo: ['holofoil', 'unlimited-holofoil', 'holo'],
-  reverse: ['reverse-holofoil', 'reverse', 'reverseHolofoil'],
-  pokeball: [], masterball: []
+  reverse: ['reverse-holofoil', 'reverse', 'reverseHolofoil']
 };
 const SCAN_VARIANT_LABEL = {normal: 'Normal', holofoil: 'Holo', 'unlimited-holofoil': 'Holo', holo: 'Holo', unlimited: 'Normal',
   'reverse-holofoil': 'Reverse holo', reverse: 'Reverse holo', reverseHolofoil: 'Reverse holo', '1st-edition': '1st edition', '1st-edition-holofoil': '1st edition holo'};
@@ -288,8 +281,7 @@ function scanEnrich_(c) {
     priceNote: '',
     others: [],
     image: '',
-    checks: [],
-    matched: false
+    checks: []
   };
   if (out.kind === 'sealed') {
     out.category = 'Sealed'; out.number = ''; out.rarity = ''; out.foil = false;
@@ -299,7 +291,6 @@ function scanEnrich_(c) {
   let card = null;
   try { card = scanFindCard_(c); } catch (e) {}
   if (card) {
-    out.matched = true;
     if (card.set && card.set.name) out.set = card.set.name;
     if (card.image) out.image = card.image + '/low.webp';
     // Card number as the sheet writes it: "053/159"; promos and other codes stay as printed
@@ -410,9 +401,8 @@ function scanAdd_(cards, batch) {
     const after = scanNextSpots_(ss);
     const out = {
       added: added,
-      rows: rows.length ? [r0, r0 + rows.length - 1] : [],
       grading: grading.length,
-      next: {binder: after.binderText, buffer: after.bufferText, used: after.binder - 1}
+      next: {binder: after.binderText, buffer: after.bufferText}
     };
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
     return out;
@@ -475,7 +465,7 @@ function scanBulk_(col, entries, date) {
   const last = scanFirstEmptyRow_(col) - 1;
   const vals = last >= 2 ? col.getRange(2, 1, last - 1, 8).getDisplayValues() : [];
   const where = {};
-  vals.forEach((r, i) => { const k = scanNorm_(r[0]); if (k && /\(count\)/i.test(r[0]) && !(k in where)) where[k] = {row: i + 2, qty: Number(String(r[6]).replace(/[^0-9.\-]/g, '')) || 0}; });
+  vals.forEach((r, i) => { const k = scanNorm_(r[0]); if (k && /\(count\)/i.test(r[0]) && !(k in where)) where[k] = {row: i + 2, qty: Number(String(r[6]).replace(/[^0-9.-]/g, '')) || 0}; });
   let next = last + 1;
   const out = [];
   for (const e of entries) {
@@ -560,9 +550,4 @@ function scanWriteRows_(sh, r0, rows, opts) {
   if (opts.numCol) sh.getRange(r0, opts.numCol, rows.length, 1).setNumberFormat('@'); // keeps "053/159" from turning into a date
   if (opts.dateCol) sh.getRange(r0, opts.dateCol, rows.length, 1).setNumberFormat('yyyy-mm-dd');
   sh.getRange(r0, 1, rows.length, rows[0].length).setValues(rows);
-}
-
-// Run this from the editor (pick testScan → Run) to check the outside-connection permission: the log should say 200.
-function testScan() {
-  Logger.log(UrlFetchApp.fetch('https://api.tcgdex.net/v2/en/sets/sv07').getResponseCode());
 }

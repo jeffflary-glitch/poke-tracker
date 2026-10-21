@@ -1,17 +1,14 @@
 /* Shared dashboard code for every tracker. Each app page (index.html for Jeff, max/index.html for Max)
    sets window.PKT before loading this file:
-     owner      "Jeff"                         → "Jeff's Pokémon Tracker"
      sheetName  "Pokemon tracker Jeff"         → shown in the app
      sheetId    Google Sheet ID                → the app only accepts data from this sheet
-     who        ""  or "max"                   → which sheet the Apps Script reads (?who=max)
      photos     "sealed/"                      → folder holding photos.json and your own photos
      store      "pkt" / "pkt-max"              → prefix for what the app saves on the phone (keeps apps apart)
-     fallback   true                           → if never loaded, show the old Apps Script page instead
      api        Apps Script /exec link         → optional: this tracker's own data link (default: Jeff's) */
-const CFG = Object.assign({owner:"Jeff", sheetName:"Pokemon tracker Jeff", sheetId:"", who:"", photos:"sealed/", store:"pkt", fallback:false}, window.PKT || {});
+const CFG = Object.assign({sheetName:"Pokemon tracker Jeff", sheetId:"", photos:"sealed/", store:"pkt"}, window.PKT || {});
 const SHEET_ID = CFG.sheetId;
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit";
-// The Apps Script web app. "?data=1" returns the sheet as data; without it, the old all-in-one page.
+// The Apps Script web app: "?data=1" returns the sheet as data; POSTs scan cards and save bulk counts.
 // A page can use its own Apps Script link (api) — Max's tracker has one — otherwise Jeff's is used.
 const API = CFG.api || "https://script.google.com/macros/s/AKfycbwPHBji0cPxwD9_-YTLs3W25WNh9dL4M6P6rw5exU3hSZjCoGwA4DFxm9zxOVUFcEILaw/exec";
 const CACHE_KEY = CFG.store + "-data";
@@ -30,11 +27,9 @@ try { const t = localStorage.getItem(TAB_KEY); if (t) S.tab = t; } catch(e) {}
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const money = v => { const n = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g, "")); return isFinite(n) ? n : 0; };
+const money = v => { const n = parseFloat(String(v ?? "").replace(/[^0-9.-]/g, "")); return isFinite(n) ? n : 0; };
 const usd = n => n.toLocaleString("en-US", {style:"currency", currency:"USD"});
-const usd0 = n => n.toLocaleString("en-US", {style:"currency", currency:"USD", maximumFractionDigits:0});
 const int = n => Math.round(n).toLocaleString("en-US");
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 function tierOf(loc){
   const l = String(loc||"");
   if (/^buffer/i.test(l) || /top loader/i.test(l)) return "top";
@@ -196,7 +191,7 @@ function priceUrl(r){
   if (!r || /\(count\)/i.test(r.name)) return "";
   const num = String(r.num || "").split("/")[0].trim();
   const base = r.tier === "sealed" ? r.name : cardName(r.name);
-  const q = (base + (r.tier !== "sealed" && num && !/mixed/i.test(num) ? " " + num : "")).replace(/[\[\]]/g, " ").replace(/\s+/g, " ").trim();
+  const q = (base + (r.tier !== "sealed" && num && !/mixed/i.test(num) ? " " + num : "")).replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim();
   return q ? "https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&view=grid&q=" + encodeURIComponent(q) : "";
 }
 function openDetail(i){
@@ -262,7 +257,7 @@ async function fetchData(){
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 30000);
   try {
-    const res = await fetch(API + "?data=1" + (CFG.who ? "&who=" + encodeURIComponent(CFG.who) : "") + "&t=" + Date.now(), {cache:"no-store", signal:ctl.signal});
+    const res = await fetch(API + "?data=1&t=" + Date.now(), {cache:"no-store", signal:ctl.signal});
     if (!res.ok) throw new Error("The sheet answered with error " + res.status + ".");
     const d = await res.json();
     if (d && d.error) throw new Error(d.error);
@@ -270,12 +265,10 @@ async function fetchData(){
     return d;
   } finally { clearTimeout(timer); }
 }
-// Never show another tracker's cards: the Apps Script says which sheet it read (newer Code.gs only).
-// Jeff's app also accepts data without that tag, so it keeps working with the older Code.gs.
+// Never show another tracker's cards: the Apps Script says which sheet it read.
+// Data without that tag (an older Code.gs) is still accepted, since each app has its own data link.
 function rightSheet(d){
-  if (!d) return false;
-  if (d.sheetId) return d.sheetId === SHEET_ID;
-  return !CFG.who || !!CFG.api; // a page's own link (api) only serves that page's sheet
+  return !!d && (!d.sheetId || d.sheetId === SHEET_ID);
 }
 function apply(d){
   const at = (d && d.at) || Date.now();
@@ -288,7 +281,7 @@ function apply(d){
   S.mode = S.data.collection ? "ready" : "error";
 }
 function loadAll(){
-  if (S.busy || S.fallback) return;
+  if (S.busy) return;
   S.busy = true; render();
   fetchData().then(d => {
     S.busy = false;
@@ -297,17 +290,11 @@ function loadAll(){
     render();
   }).catch(e => {
     S.busy = false;
-    // Never loaded here before (e.g. Code.gs not updated yet): show the Apps Script version instead (Jeff's app only).
-    if (!S.data.collection && CFG.fallback && !(e && e.code === "wrong_sheet")) { useFallback(); return; }
     const err = {code: (e && e.code) || "error", message: e && e.name === "AbortError" ? "The sheet took too long to answer." : ((e && e.message) || "")};
     KEYS.forEach(k => S.err[k] = err);
     if (!S.data.collection) S.mode = "error";
     render();
   });
-}
-function useFallback(){
-  S.fallback = true;
-  document.body.innerHTML = `<iframe src="${API}" title="${esc(CFG.owner)}'s Pokémon Tracker" allow="fullscreen" style="position:fixed;inset:0;width:100%;height:100%;border:0;display:block"></iframe>`;
 }
 function boot(){
   try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); if (c && rightSheet(c)) apply(c); } catch(e) {}
@@ -350,7 +337,7 @@ function stateView(){
   }
   const e = S.err.collection || {code:"error"};
   if (e.code === "missing_tab") return msg("No Collection tab found", "The sheet opened, but it has no tab named “Collection”. If you renamed it, change the name back or update Code.gs.", "Try again");
-  if (e.code === "wrong_sheet") return msg("Almost ready", "The data link hasn't been updated for “" + CFG.sheetName + "” yet. Once the new Code.gs is deployed in Apps Script, tap Try again.", "Try again");
+  if (e.code === "wrong_sheet") return msg("Wrong sheet", "This app's data link answered with a different sheet than “" + CFG.sheetName + "”. Check that the app points at its own Apps Script link.", "Try again");
   return msg("The sheet couldn't be read", (e.message ? e.message + " " : "") + "Check your connection and that “" + CFG.sheetName + "” still exists, then try again.", "Try again");
 }
 function msg(title, text, action){
@@ -365,9 +352,9 @@ function secErr(key, label){
 /* ---------- derived ---------- */
 function stats(){
   const c = S.data.collection || [];
-  const t = {}; TIERS.concat([{k:"other"}]).forEach(x => t[x.k] = {qty:0, value:0, rows:0});
+  const t = {}; TIERS.concat([{k:"other"}]).forEach(x => t[x.k] = {qty:0, value:0});
   let qty = 0, value = 0;
-  for (const r of c) { qty += r.qty; value += r.total; const b = t[r.tier]; b.qty += r.qty; b.value += r.total; b.rows++; }
+  for (const r of c) { qty += r.qty; value += r.total; const b = t[r.tier]; b.qty += r.qty; b.value += r.total; }
   return {c, t, qty, value};
 }
 const dateVal = s => { const t = Date.parse(String(s || "").trim()); return isFinite(t) ? t : 0; };
@@ -598,7 +585,7 @@ function viewGrading(){
 
 function viewStorage(){
   const st = S.data.storage;
-  const {c, t} = stats();
+  const {c} = stats();
   const ns = c.filter(r => r.sleeve);
   const colorFor = u => /binder/i.test(u) ? "c-binder" : /bulk/i.test(u) ? "c-bulk" : /top/i.test(u) ? "c-top" : /sealed/i.test(u) ? "c-sealed" : "c-other";
   const units = st ? st.units.map(u => {
@@ -1010,7 +997,7 @@ function setTab(t){
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 $("main").addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t && !e.target.closest("button")) openDetail(+t.dataset.i); });
 $("main").addEventListener("keydown", e => { const t = e.target.closest("[data-i]"); if (t && e.key === "Enter") openDetail(+t.dataset.i); });
-$("refresh").onclick = () => loadAll(true);
+$("refresh").onclick = () => loadAll();
 setInterval(() => { if (!S.busy) $("stamp").textContent = ago(S.at.collection); }, 60000);
 initScan();
 boot();
