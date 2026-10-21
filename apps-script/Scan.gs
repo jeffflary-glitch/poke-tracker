@@ -61,9 +61,10 @@ function scanIdentify_(image, mediaType) {
   if (image.length > 9500000) throw new Error('The photo is too large. Try again with a smaller photo.');
   mediaType = /^image\/(jpeg|png|webp)$/.test(mediaType) ? mediaType : 'image/jpeg';
 
-  const ai = scanAskClaude_(image, mediaType);
+  const known = scanSheetSets_();
+  const ai = scanAskClaude_(image, mediaType, known.names);
   return {
-    cards: (ai.result.cards || []).map(scanEnrich_),
+    cards: (ai.result.cards || []).map(c => scanEnrich_(c, known)),
     photoNote: ai.result.photoNote || '',
     cost: ai.cost
   };
@@ -75,7 +76,7 @@ const SCAN_SYSTEM = [
   '',
   'For each card:',
   '- name: exactly as printed, including "ex", "V", "VMAX", "VSTAR" and owner prefixes such as "Team Rocket\'s" or "Iono\'s".',
-  '- set: the full English set name as TCGplayer and TCGdex write it, e.g. "Stellar Crown", "Journey Together", "Destined Rivals", "Prismatic Evolutions", "SWSH Black Star Promos", "Scarlet & Violet Black Star Promos". Work it out from the set symbol, the printed set code and the card number.',
+  '- set: the full English set name as TCGplayer and TCGdex write it, e.g. "Stellar Crown", "Journey Together", "Destined Rivals", "Prismatic Evolutions", "SWSH Black Star Promos", "Scarlet & Violet Black Star Promos". Read it from the printed set code next to the card number (e.g. "PBL", "JTG") and the number\'s total (the "/084" part), not from the artwork. Sets already in this collection are listed below; use one of those names when the code and total fit it.',
   '- number: exactly as printed in the bottom corner, e.g. "053/159", "SWSH085", "TG05/TG30", "129".',
   '- rarity: one of Common, Uncommon, Rare, Holo Rare, Double Rare, Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, ACE SPEC Rare, Shiny Rare, Promo, or the closest older rarity name. Do not add "(Reverse Holo)" here; use finish instead.',
   '- category: "Pokémon", "Trainer", "Energy", or "Sealed".',
@@ -125,13 +126,13 @@ const SCAN_SCHEMA = {
   additionalProperties: false
 };
 
-function scanAskClaude_(image, mediaType) {
+function scanAskClaude_(image, mediaType, setNames) {
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!key) throw new Error('Scanning is not set up yet: add ANTHROPIC_API_KEY in Apps Script → Project Settings → Script Properties.');
   const body = {
     model: SCAN_MODEL,
     max_tokens: 8000,
-    system: SCAN_SYSTEM,
+    system: SCAN_SYSTEM + (setNames.length ? '\n\nSets already in this collection: ' + setNames.join(', ') + '.' : ''),
     output_config: {effort: SCAN_EFFORT, format: {type: 'json_schema', schema: SCAN_SCHEMA}},
     messages: [{role: 'user', content: [
       {type: 'image', source: {type: 'base64', media_type: mediaType, data: image}},
@@ -212,30 +213,48 @@ function scanSetCards_(id) {
     return m;
   }) || {};
 }
+const scanTotal_ = n => +(String(n || '').split('/')[1] || '').replace(/\D/g, '') || 0;
+const scanOfficial_ = card => (card && card.set && card.set.cardCount && card.set.cardCount.official) || 0;
+
+// Finds the card in TCGdex. A card only counts as found when its name matches and its set has the printed
+// total (the "/084" in 045/084), so a wrong set name from the photo can't pick a different card.
 function scanFindCard_(c) {
   const sets = scanSets_();
-  const nk = scanNumKey_(c.number);
+  const nk = scanNumKey_(c.number), name = scanCardName_(c.name), total = scanTotal_(c.number);
+  if (!name || !nk) return null;
+  const fits = card => !!card && scanNorm_(scanCardName_(card.name)) === scanNorm_(name)
+    && (!total || !scanOfficial_(card) || scanOfficial_(card) === total);
+  // 1. The set read from the photo
   let st = sets[scanNormSet_(c.set)];
   if (!st && /blackstarpromos$/.test(scanNormSet_(c.set))) st = sets[scanNormSet_(c.set).replace(/blackstarpromos$/, 'pblackstarpromos')];
-  if (st && nk) {
+  if (st) {
     const id = scanSetCards_(st[0])[nk];
-    if (id) { const card = scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id)); if (card) return card; }
+    const card = id && scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id));
+    if (fits(card)) return card;
   }
-  // Backup: the same card name and number in any set; prefer a set with the printed card count (the "/159" part).
-  const name = scanCardName_(c.name);
-  if (!name || !nk) return null;
+  // 2. The same name and number in any set
   const list = scanGetJSON_(SCAN_TCG + '/cards?name=eq:' + encodeURIComponent(name)) || [];
-  const hits = list.filter(x => scanNumKey_(x.localId) === nk).slice(0, 4);
-  const total = String(c.number || '').split('/')[1];
-  let first = null;
-  for (const h of hits) {
+  for (const h of list.filter(x => scanNumKey_(x.localId) === nk).slice(0, 4)) {
     const card = scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(h.id));
-    if (!card) continue;
-    first = first || card;
-    const off = card.set && card.set.cardCount && card.set.cardCount.official;
-    if (total && off && +total.replace(/\D/g, '') === +off) return card;
+    if (fits(card)) return card;
   }
-  return first;
+  return null;
+}
+
+// Sets already in the Collection tab: their names, and which set each printed total belongs to
+// (e.g. 084 → Pitch Black). Used when a set is too new to be in the card database.
+function scanSheetSets_() {
+  const col = SpreadsheetApp.openById(scanSheetId_()).getSheetByName('Collection');
+  const last = col ? scanFirstEmptyRow_(col) - 1 : 1;
+  const rows = last >= 2 ? col.getRange(2, 2, last - 1, 2).getDisplayValues() : [];
+  const names = {}, byTotal = {};
+  for (const [set, num] of rows) {
+    const name = String(set || '').replace(/\s*\(.*\)\s*$/, '').trim(), t = scanTotal_(num);
+    if (!name || /^mixed$/i.test(name)) continue;
+    names[name] = true;
+    if (t && !/promo/i.test(name)) (byTotal[t] = byTotal[t] || {})[name] = true;
+  }
+  return {names: Object.keys(names).sort(), byTotal: byTotal};
 }
 
 const SCAN_VARIANTS = {
@@ -262,7 +281,7 @@ function scanPrices_(card) {
 function scanPad3_(s) { return /^\d+$/.test(s) && s.length < 3 ? ('00' + s).slice(-3) : s; }
 
 // Turns Claude's reading into a row ready to check in the app: confirmed name/set/number, price and warnings.
-function scanEnrich_(c) {
+function scanEnrich_(c, known) {
   const out = {
     kind: c.kind === 'sealed' || c.category === 'Sealed' ? 'sealed' : 'card',
     name: String(c.name || '').trim(),
@@ -320,6 +339,12 @@ function scanEnrich_(c) {
     }
     out.others = all.filter(k => k !== key).map(k => ({label: SCAN_VARIANT_LABEL[k] || k, price: prices[k]}));
   } else {
+    // Too new for the card database: if the printed total belongs to exactly one set in the sheet, use that set.
+    const sets = Object.keys(known.byTotal[scanTotal_(out.number)] || {});
+    if (sets.length === 1 && scanNormSet_(sets[0]) !== scanNormSet_(out.set)) {
+      out.checks.push('Set changed from ' + out.set + ' to ' + sets[0] + ' to match the printed number ' + out.number + '.');
+      out.set = sets[0];
+    }
     out.priceNote = 'Card not found in the database. Check the set and number, and enter the TCGplayer price.';
     out.confidence = out.confidence === 'high' ? 'medium' : out.confidence;
   }
