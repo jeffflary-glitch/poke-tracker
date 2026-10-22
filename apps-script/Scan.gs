@@ -76,7 +76,8 @@ const SCAN_SYSTEM = [
   '',
   'For each card:',
   '- name: exactly as printed, including "ex", "V", "VMAX", "VSTAR" and owner prefixes such as "Team Rocket\'s" or "Iono\'s".',
-  '- set: the full English set name as TCGplayer and TCGdex write it, e.g. "Stellar Crown", "Journey Together", "Destined Rivals", "Prismatic Evolutions", "SWSH Black Star Promos", "Scarlet & Violet Black Star Promos". Read it from the printed set code next to the card number (e.g. "PBL", "JTG") and the number\'s total (the "/084" part), not from the artwork. Sets already in this collection are listed below; use one of those names when the code and total fit it.',
+  '- set: the full English set name as TCGplayer and TCGdex write it, e.g. "Stellar Crown", "Journey Together", "Destined Rivals", "Prismatic Evolutions", "SWSH Black Star Promos", "Scarlet & Violet Black Star Promos". Read it from the printed set code and the number\'s total (the "/084" part), not from the artwork. Sets already in this collection are listed below; use one of those names when the code and total fit it.',
+  '- setCode: the 3-letter set code printed next to the card number, exactly as printed (e.g. "PBL", "JTG"). Not the single regulation-mark letter. "" if no code is printed (older cards).',
   '- number: exactly as printed in the bottom corner, e.g. "053/159", "SWSH085", "TG05/TG30", "129".',
   '- rarity: one of Common, Uncommon, Rare, Holo Rare, Double Rare, Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, ACE SPEC Rare, Shiny Rare, Promo, or the closest older rarity name. Do not add "(Reverse Holo)" here; use finish instead.',
   '- category: "Pokémon", "Trainer", "Energy", or "Sealed".',
@@ -106,6 +107,7 @@ const SCAN_SCHEMA = {
           kind: {type: 'string', enum: ['card', 'sealed']},
           name: {type: 'string'},
           set: {type: 'string'},
+          setCode: {type: 'string'},
           number: {type: 'string'},
           rarity: {type: 'string'},
           category: {type: 'string', enum: ['Pokémon', 'Trainer', 'Energy', 'Sealed']},
@@ -116,7 +118,7 @@ const SCAN_SCHEMA = {
           confidence: {type: 'string', enum: ['high', 'medium', 'low']},
           note: {type: 'string'}
         },
-        required: ['kind', 'name', 'set', 'number', 'rarity', 'category', 'basicEnergy', 'finish', 'foil', 'condition', 'confidence', 'note'],
+        required: ['kind', 'name', 'set', 'setCode', 'number', 'rarity', 'category', 'basicEnergy', 'finish', 'foil', 'condition', 'confidence', 'note'],
         additionalProperties: false
       }
     },
@@ -199,21 +201,33 @@ function scanSets_() {
     const m = {};
     for (const s of list) {
       const k = scanNormSet_(s.name);
-      if (k && !m[k]) m[k] = [s.id, (s.cardCount && s.cardCount.official) || 0];
+      if (k && !m[k]) m[k] = [s.id, (s.cardCount && s.cardCount.official) || 0, s.name];
     }
     return m;
   }) || {};
 }
-function scanSetCards_(id) {
-  return scanCached_('tcg-set-' + id, 12, () => {
+// One set's printed code (e.g. "PBL") and its cards by number.
+function scanSetInfo_(id) {
+  return scanCached_('tcg-setinfo-' + id, 12, () => {
     const s = scanGetJSON_(SCAN_TCG + '/sets/' + encodeURIComponent(id));
     if (!s) return null;
-    const m = {};
-    for (const c of s.cards || []) m[scanNumKey_(c.localId)] = c.id;
-    return m;
-  }) || {};
+    const cards = {};
+    for (const c of s.cards || []) cards[scanNumKey_(c.localId)] = c.id;
+    return {code: String((s.abbreviation && s.abbreviation.official) || '').toUpperCase(), cards: cards};
+  }) || {code: '', cards: {}};
 }
 const scanTotal_ = n => +(String(n || '').split('/')[1] || '').replace(/\D/g, '') || 0;
+// The set whose printed code and total match the card (PBL + /084 → Pitch Black), or '' if none does.
+// The code on the card decides, so a set newer than Claude's training can't be swapped for an older one.
+function scanSetByCode_(code, total) {
+  code = String(code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,4}$/.test(code) || !total) return '';
+  const sets = scanSets_();
+  for (const k in sets) {
+    if (sets[k][1] === total && scanSetInfo_(sets[k][0]).code === code) return sets[k][2];
+  }
+  return '';
+}
 const scanOfficial_ = card => (card && card.set && card.set.cardCount && card.set.cardCount.official) || 0;
 
 // Finds the card in TCGdex. A card only counts as found when its name matches and its set has the printed
@@ -228,7 +242,7 @@ function scanFindCard_(c) {
   let st = sets[scanNormSet_(c.set)];
   if (!st && /blackstarpromos$/.test(scanNormSet_(c.set))) st = sets[scanNormSet_(c.set).replace(/blackstarpromos$/, 'pblackstarpromos')];
   if (st) {
-    const id = scanSetCards_(st[0])[nk];
+    const id = scanSetInfo_(st[0]).cards[nk];
     const card = id && scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id));
     if (fits(card)) return card;
   }
@@ -308,7 +322,14 @@ function scanEnrich_(c, known) {
     return scanChecks_(out);
   }
   let card = null;
-  try { card = scanFindCard_(c); } catch (e) {}
+  try {
+    const bySet = scanSetByCode_(c.setCode, scanTotal_(out.number));
+    if (bySet && scanNormSet_(bySet) !== scanNormSet_(out.set)) {
+      out.checks.push('Set changed from ' + out.set + ' to ' + bySet + ' to match the printed code ' + String(c.setCode).toUpperCase() + '.');
+      out.set = bySet;
+    }
+    card = scanFindCard_(out);
+  } catch (e) {}
   if (card) {
     if (card.set && card.set.name) out.set = card.set.name;
     if (card.image) out.image = card.image + '/low.webp';
