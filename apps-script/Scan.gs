@@ -195,7 +195,7 @@ function scanCached_(key, hours, fn) {
   return v;
 }
 function scanSets_() {
-  return scanCached_('tcg-sets', 6, () => {
+  return scanCached_('tcg-setlist', 6, () => {
     const list = scanGetJSON_(SCAN_TCG + '/sets');
     if (!list) return null;
     const m = {};
