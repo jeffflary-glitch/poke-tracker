@@ -5,7 +5,8 @@
 // How a scan works:
 //   1. The app sends a photo with the passcode → Claude (Sonnet 5.5, medium effort) reads every card.
 //   2. Each card is looked up in TCGdex (free card database) to confirm it and get its TCGplayer market price.
-//      Sealed product isn't in TCGdex, so Claude Haiku searches the web for its current market price.
+//      Claude Haiku then searches the web for anything TCGdex can't settle: sealed product, cards with
+//      no price or not found, and cards that are unsure or don't match. It confirms the card and its price.
 //   3. You check the list in the app, fix anything, then tap Add → rows are written to Collection (A–K)
 //      using the same storage rules as the chat skill, and $20+ cards also get a Grading row.
 //      Cheap commons/uncommons can instead be added to their set's bulk count row.
@@ -65,13 +66,17 @@ function scanIdentify_(image, mediaType) {
   const known = scanSheetSets_();
   const ai = scanAskClaude_(image, mediaType, known.names);
   const cards = (ai.result.cards || []).map(c => scanEnrich_(c, known));
-  const sealedCost = scanSealedPrices_(cards.filter(c => c.kind === 'sealed'));
+  const webCost = scanWebCheck_(cards.filter(scanNeedsWeb_));
+  cards.forEach(scanChecks_);
   return {
     cards: cards,
     photoNote: ai.result.photoNote || '',
-    cost: Math.round((ai.cost + sealedCost) * 10000) / 10000
+    cost: Math.round((ai.cost + webCost) * 10000) / 10000
   };
 }
+
+// Sealed product, no price, not found, unsure, or a set/name that didn't match (the only checks so far).
+const scanNeedsWeb_ = c => c.kind === 'sealed' || c.price == null || c.confidence !== 'high' || c.checks.length > 0;
 
 const SCAN_SYSTEM = [
   'You identify Pokémon TCG cards and sealed products in a photo for a collection tracker.',
@@ -303,6 +308,7 @@ function scanEnrich_(c, known) {
     kind: c.kind === 'sealed' || c.category === 'Sealed' ? 'sealed' : 'card',
     name: String(c.name || '').trim(),
     set: String(c.set || '').trim(),
+    setCode: String(c.setCode || '').trim().toUpperCase(),
     number: String(c.number || '').trim().toUpperCase(),
     rarity: String(c.rarity || '').trim(),
     category: ['Pokémon', 'Trainer', 'Energy', 'Sealed'].find(x => x.toLowerCase() === String(c.category || '').toLowerCase()) || 'Pokémon',
@@ -326,9 +332,9 @@ function scanEnrich_(c, known) {
   }
   let card = null;
   try {
-    const bySet = scanSetByCode_(c.setCode, scanTotal_(out.number));
+    const bySet = scanSetByCode_(out.setCode, scanTotal_(out.number));
     if (bySet && scanNormSet_(bySet) !== scanNormSet_(out.set)) {
-      out.checks.push('Set changed from ' + out.set + ' to ' + bySet + ' to match the printed code ' + String(c.setCode).toUpperCase() + '.');
+      out.checks.push('Set changed from ' + out.set + ' to ' + bySet + ' to match the printed code ' + out.setCode + '.');
       out.set = bySet;
     }
     card = scanFindCard_(out);
@@ -375,49 +381,84 @@ function scanEnrich_(c, known) {
   if (out.finish === 'reverse' && !/reverse/i.test(out.rarity)) out.rarity = (out.rarity ? out.rarity + ' ' : '') + '(Reverse Holo)';
   if (out.finish === 'pokeball' && !/pok/i.test(out.rarity)) out.rarity = (out.rarity ? out.rarity + ' ' : '') + '(Poké Ball Reverse Holo)';
   if (out.finish === 'masterball' && !/master/i.test(out.rarity)) out.rarity = (out.rarity ? out.rarity + ' ' : '') + '(Master Ball Reverse Holo)';
-  if (out.condition !== 'NM' && out.price != null) out.checks.push('Priced as Near Mint; a ' + out.condition + ' copy sells for less.');
-  return scanChecks_(out);
+  return out;
 }
 
+// Price warnings for cards, added once the final price is known (sealed product isn't routed by price).
 function scanChecks_(c) {
   const p = c.price;
-  if (p != null) {
-    if (p >= 20) c.checks.push('$20+ card: confirm the price on TCGplayer before filing.');
-    else if (Math.abs(p - 20) <= 1 || Math.abs(p - 2) <= 1) c.checks.push('Close to the $' + (Math.abs(p - 20) <= 1 ? 20 : 2) + ' line: confirm the price on TCGplayer.');
-  }
-  return c;
+  if (c.kind === 'sealed' || p == null) return;
+  if (p >= 20) c.checks.push('$20+ card: confirm the price on TCGplayer before filing.');
+  else if (Math.abs(p - 20) <= 1 || Math.abs(p - 2) <= 1) c.checks.push('Close to the $' + (Math.abs(p - 20) <= 1 ? 20 : 2) + ' line: confirm the price on TCGplayer.');
+  if (c.condition !== 'NM') c.checks.push('Priced as Near Mint; a ' + c.condition + ' copy sells for less.');
 }
 
-/* ---------- sealed prices from the web ---------- */
-// One web-search request per sealed item, all sent at once. Haiku keeps this to about 1–3¢ per item,
-// most of it the 1¢ per search. If nothing usable comes back, the price stays blank to type in.
-const SCAN_SEALED_MODEL = 'claude-haiku-5-5';
-const SCAN_SEALED_PRICE = {input: 0.10, output: 0.50, search: 0.01};   // $ per million tokens, $ per search
+/* ---------- web check: price and verify what TCGdex couldn't settle ---------- */
+// One web-search request per item, all sent at once. Haiku keeps this to about 1–3¢ per item,
+// most of it the 1¢ per search. If nothing usable comes back, the item stays as TCGdex left it.
+const SCAN_WEB_MODEL = 'claude-haiku-5-5';
+const SCAN_WEB_EFFORT = 'medium';
+const SCAN_WEB_PRICE = {input: 0.10, output: 0.50, search: 0.01};   // $ per million tokens, $ per search
+
+const SCAN_WEB_SOURCES = [
+  'Never use MSRP, presale prices, a single seller\'s asking price, or the lowest listing.',
+  'End your answer with exactly one line of JSON and nothing after it, in this shape:'
+];
 
 const SCAN_SEALED_SYSTEM = [
   'You find the current US market price of one sealed Pokémon TCG product for a collection tracker.',
   'Search the web. Use the TCGplayer market price (what it has recently sold for) from tcgplayer.com or a site that shows it, such as pricecharting.com or pokeinvesting.com. If none is listed, use recent eBay sold prices.',
-  'Never use MSRP, presale prices, a single seller\'s asking price, or the lowest listing.',
   'Match the exact product: same set and same product type (booster pack, sleeved booster, blister, booster bundle, Elite Trainer Box, Pokémon Center Elite Trainer Box, mini tin, tin, collection box, booster box). If the name doesn\'t say which design of a tin or box it is and the designs sell for different prices, use the typical price and say so in the note.',
-  'Give the price of one unit.',
-  'End your answer with exactly one line of JSON and nothing after it:',
+  'Give the price of one unit.'
+].concat(SCAN_WEB_SOURCES, [
   '{"price": 12.34, "product": "the product name the price is for", "source": "e.g. TCGplayer market price via PriceCharting", "note": ""}',
   'Use "price": null if you can\'t find a trustworthy current price.'
-].join('\n');
+]).join('\n');
 
-function scanSealedPrices_(items) {
+const SCAN_CARD_SYSTEM = [
+  'You verify one Pokémon TCG card for a collection tracker and find its current US market price.',
+  'Another model read the card from a photo, and a card database could not fully confirm it. The reading may be wrong about the set, the number or the name.',
+  'Search the web to confirm which card it is. The printed set code and the total after the slash (the "084" in 045/084) identify the set more reliably than the set name; the number identifies the card within the set. Keep the name the photo shows unless that number in that set is clearly a different card.',
+  'Then find the Near Mint TCGplayer market price (what it has recently sold for) for the stated finish: Normal, Holofoil, Reverse Holofoil, Poké Ball pattern or Master Ball pattern. Use tcgplayer.com or a site that shows TCGplayer prices: pricecharting.com, scrydex.com, pokemonwizard.com, pokeinvesting.com.'
+].concat(SCAN_WEB_SOURCES, [
+  '{"name": "card name as printed", "set": "full English set name as TCGplayer writes it", "number": "045/084", "price": 1.23, "source": "e.g. TCGplayer market price via Scrydex (Reverse Holofoil)", "confidence": "high", "note": ""}',
+  'confidence is "high" when a source clearly shows this card, set and number; "medium" when it probably is; "low" when you couldn\'t confirm it.',
+  'note: one short line on anything still uncertain (e.g. "could be the Poké Ball pattern, which sells for $8"), otherwise "".',
+  'Use "price": null if you can\'t find a trustworthy current price for this finish.'
+]).join('\n');
+
+const SCAN_FINISH_LABEL = {normal: 'Normal (no foil)', holo: 'Holofoil', reverse: 'Reverse Holofoil',
+  pokeball: 'Poké Ball pattern reverse holo', masterball: 'Master Ball pattern reverse holo'};
+
+// What the web check is told about one item, including why it's being checked.
+function scanWebQuestion_(c) {
+  if (c.kind === 'sealed') return 'Sealed product: ' + c.name + (c.set ? '\nSet: ' + c.set : '');
+  const why = c.checks.slice();
+  if (c.price == null) why.push(c.priceNote);
+  if (c.confidence !== 'high') why.push('The photo reading was only ' + c.confidence + ' confidence.');
+  return [
+    'Card name: ' + c.name,
+    'Set: ' + c.set,
+    'Set code printed on the card: ' + (c.setCode || 'none'),
+    'Number: ' + c.number,
+    'Rarity: ' + (c.rarity || 'unknown'),
+    'Finish: ' + (SCAN_FINISH_LABEL[c.finish] || c.finish)
+  ].concat(c.note ? ['Note from reading the photo: ' + c.note] : [], ['Why it is being checked: ' + why.join(' ')]).join('\n');
+}
+
+function scanWebCheck_(items) {
   if (!items.length) return 0;
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  const request = messages => ({
+  const request = (c, messages) => ({
     url: 'https://api.anthropic.com/v1/messages',
     method: 'post',
     contentType: 'application/json',
     headers: {'x-api-key': key, 'anthropic-version': '2023-06-01'},
     payload: JSON.stringify({
-      model: SCAN_SEALED_MODEL,
+      model: SCAN_WEB_MODEL,
       max_tokens: 4000,
-      system: SCAN_SEALED_SYSTEM,
-      output_config: {effort: 'low'},
+      system: c.kind === 'sealed' ? SCAN_SEALED_SYSTEM : SCAN_CARD_SYSTEM,
+      output_config: {effort: SCAN_WEB_EFFORT},
       tools: [{type: 'web_search_20250305', name: 'web_search', max_uses: 3,
         user_location: {type: 'approximate', country: 'US', timezone: SCAN_TZ}}],
       messages: messages
@@ -425,44 +466,83 @@ function scanSealedPrices_(items) {
     muteHttpExceptions: true
   });
   let cost = 0;
-  let pending = items.map(c => ({c: c, messages: [{role: 'user', content: 'Sealed product: ' + c.name + (c.set ? '\nSet: ' + c.set : '')}]}));
+  let pending = items.map(c => ({c: c, messages: [{role: 'user', content: scanWebQuestion_(c)}]}));
   // A long search can pause partway ("pause_turn"); sending the answer so far back lets it finish.
   for (let round = 0; round < 3 && pending.length; round++) {
     let res;
-    try { res = UrlFetchApp.fetchAll(pending.map(p => request(p.messages))); } catch (e) { break; }
+    try { res = UrlFetchApp.fetchAll(pending.map(p => request(p.c, p.messages))); } catch (e) { break; }
     const again = [];
     res.forEach((r, i) => {
       if (r.getResponseCode() !== 200) return;
       let data;
       try { data = JSON.parse(r.getContentText()); } catch (e) { return; }
       const u = data.usage || {};
-      cost += ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0)) * SCAN_SEALED_PRICE.input / 1e6
-        + (u.output_tokens || 0) * SCAN_SEALED_PRICE.output / 1e6
-        + ((u.server_tool_use && u.server_tool_use.web_search_requests) || 0) * SCAN_SEALED_PRICE.search;
+      cost += ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0)) * SCAN_WEB_PRICE.input / 1e6
+        + (u.output_tokens || 0) * SCAN_WEB_PRICE.output / 1e6
+        + ((u.server_tool_use && u.server_tool_use.web_search_requests) || 0) * SCAN_WEB_PRICE.search;
       const p = pending[i];
       if (data.stop_reason === 'pause_turn') {
         p.messages = p.messages.concat([{role: 'assistant', content: data.content}]);
         again.push(p);
-      } else {
-        scanSealedApply_(p.c, data.content);
+        return;
       }
+      const ans = scanWebAnswer_(data.content);
+      if (ans) (p.c.kind === 'sealed' ? scanWebSealed_ : scanWebCard_)(p.c, ans);
     });
     pending = again;
   }
   return cost;
 }
 
-// Reads the JSON line at the end of the answer and puts the price on the item.
-function scanSealedApply_(c, content) {
+// The JSON line at the end of the answer, with its price checked (null if missing or not a real price).
+function scanWebAnswer_(content) {
   const text = (content || []).filter(b => b.type === 'text').map(b => b.text).join('');
   const found = text.match(/\{[^{}]*"price"[^{}]*\}/g);
-  if (!found) return;
+  if (!found) return null;
   let r;
-  try { r = JSON.parse(found[found.length - 1]); } catch (e) { return; }
+  try { r = JSON.parse(found[found.length - 1]); } catch (e) { return null; }
   const price = Number(r.price);
-  if (r.price == null || !isFinite(price) || price <= 0) return;
-  c.price = Math.round(price * 100) / 100;
-  c.priceNote = 'Web price' + (r.product ? ' for ' + r.product : '') + (r.source ? ' (' + r.source + ')' : '') + '. Tap TCGplayer to double-check.';
+  r.price = r.price != null && r.price !== '' && isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : null;
+  r.source = r.source ? ' (' + r.source + ')' : '';
+  return r;
+}
+
+function scanWebSealed_(c, r) {
+  if (r.price == null) return;
+  c.price = r.price;
+  c.priceNote = 'Web price' + (r.product ? ' for ' + r.product : '') + r.source + '. Tap TCGplayer to double-check.';
+  if (r.note) c.checks.push(String(r.note));
+}
+
+const scanFmtNumber_ = n => String(n).trim().toUpperCase().split('/').map(s => scanPad3_(s.trim())).join('/');
+
+function scanWebCard_(c, r) {
+  const conf = ['high', 'medium', 'low'].indexOf(r.confidence) >= 0 ? r.confidence : 'low';
+  // A sure answer replaces the database's warnings; an unsure one only adds its note.
+  if (conf === 'high') c.checks = [];
+  const changed = [];
+  if (conf !== 'low') {
+    if (r.set && scanNormSet_(r.set) !== scanNormSet_(c.set)) { changed.push('set from ' + c.set + ' to ' + r.set); c.set = String(r.set); }
+    if (r.number && scanNumKey_(r.number) !== scanNumKey_(c.number)) { changed.push('number from ' + c.number + ' to ' + scanFmtNumber_(r.number)); c.number = scanFmtNumber_(r.number); }
+    if (r.name && scanNorm_(scanCardName_(r.name)) !== scanNorm_(scanCardName_(c.name))) { changed.push('name from ' + c.name + ' to ' + r.name); c.name = String(r.name); }
+  }
+  if (changed.length) {
+    // The database's picture and other-version prices belonged to the card it guessed.
+    c.checks.push('Web check changed the ' + changed.join(', ') + '.');
+    c.image = '';
+    c.others = [];
+  }
+  if (r.price != null && (changed.length || c.price == null)) {
+    c.price = r.price;
+    c.priceNote = 'Web price' + r.source + '.';
+  } else if (changed.length) {
+    c.price = null;
+    c.priceNote = 'No price found for the corrected card. Enter the TCGplayer price.';
+  } else if (r.price != null && Math.abs(r.price - c.price) > Math.max(1, c.price * 0.25)) {
+    c.checks.push('The web shows $' + r.price.toFixed(2) + r.source + ' instead of $' + c.price.toFixed(2) + '. Check TCGplayer.');
+  }
+  if (conf === 'high') c.priceNote += ' Card confirmed by a web search.';
+  c.confidence = conf;
   if (r.note) c.checks.push(String(r.note));
 }
 
