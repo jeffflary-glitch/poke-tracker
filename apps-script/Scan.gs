@@ -5,6 +5,7 @@
 // How a scan works:
 //   1. The app sends a photo with the passcode → Claude (Sonnet 5.5, medium effort) reads every card.
 //   2. Each card is looked up in TCGdex (free card database) to confirm it and get its TCGplayer market price.
+//      Sealed product isn't in TCGdex, so Claude Haiku searches the web for its current market price.
 //   3. You check the list in the app, fix anything, then tap Add → rows are written to Collection (A–K)
 //      using the same storage rules as the chat skill, and $20+ cards also get a Grading row.
 //      Cheap commons/uncommons can instead be added to their set's bulk count row.
@@ -63,10 +64,12 @@ function scanIdentify_(image, mediaType) {
 
   const known = scanSheetSets_();
   const ai = scanAskClaude_(image, mediaType, known.names);
+  const cards = (ai.result.cards || []).map(c => scanEnrich_(c, known));
+  const sealedCost = scanSealedPrices_(cards.filter(c => c.kind === 'sealed'));
   return {
-    cards: (ai.result.cards || []).map(c => scanEnrich_(c, known)),
+    cards: cards,
     photoNote: ai.result.photoNote || '',
-    cost: ai.cost
+    cost: Math.round((ai.cost + sealedCost) * 10000) / 10000
   };
 }
 
@@ -318,8 +321,8 @@ function scanEnrich_(c, known) {
   };
   if (out.kind === 'sealed') {
     out.category = 'Sealed'; out.number = ''; out.rarity = ''; out.foil = false;
-    out.priceNote = 'Sealed prices aren\'t in the card database. Enter the TCGplayer price.';
-    return scanChecks_(out);
+    out.priceNote = 'No price found online. Enter the TCGplayer price.';   // replaced when the web search finds one
+    return out;
   }
   let card = null;
   try {
@@ -383,6 +386,84 @@ function scanChecks_(c) {
     else if (Math.abs(p - 20) <= 1 || Math.abs(p - 2) <= 1) c.checks.push('Close to the $' + (Math.abs(p - 20) <= 1 ? 20 : 2) + ' line: confirm the price on TCGplayer.');
   }
   return c;
+}
+
+/* ---------- sealed prices from the web ---------- */
+// One web-search request per sealed item, all sent at once. Haiku keeps this to about 1–3¢ per item,
+// most of it the 1¢ per search. If nothing usable comes back, the price stays blank to type in.
+const SCAN_SEALED_MODEL = 'claude-haiku-5-5';
+const SCAN_SEALED_PRICE = {input: 0.10, output: 0.50, search: 0.01};   // $ per million tokens, $ per search
+
+const SCAN_SEALED_SYSTEM = [
+  'You find the current US market price of one sealed Pokémon TCG product for a collection tracker.',
+  'Search the web. Use the TCGplayer market price (what it has recently sold for) from tcgplayer.com or a site that shows it, such as pricecharting.com or pokeinvesting.com. If none is listed, use recent eBay sold prices.',
+  'Never use MSRP, presale prices, a single seller\'s asking price, or the lowest listing.',
+  'Match the exact product: same set and same product type (booster pack, sleeved booster, blister, booster bundle, Elite Trainer Box, Pokémon Center Elite Trainer Box, mini tin, tin, collection box, booster box). If the name doesn\'t say which design of a tin or box it is and the designs sell for different prices, use the typical price and say so in the note.',
+  'Give the price of one unit.',
+  'End your answer with exactly one line of JSON and nothing after it:',
+  '{"price": 12.34, "product": "the product name the price is for", "source": "e.g. TCGplayer market price via PriceCharting", "note": ""}',
+  'Use "price": null if you can\'t find a trustworthy current price.'
+].join('\n');
+
+function scanSealedPrices_(items) {
+  if (!items.length) return 0;
+  const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  const request = messages => ({
+    url: 'https://api.anthropic.com/v1/messages',
+    method: 'post',
+    contentType: 'application/json',
+    headers: {'x-api-key': key, 'anthropic-version': '2023-06-01'},
+    payload: JSON.stringify({
+      model: SCAN_SEALED_MODEL,
+      max_tokens: 4000,
+      system: SCAN_SEALED_SYSTEM,
+      output_config: {effort: 'low'},
+      tools: [{type: 'web_search_20250305', name: 'web_search', max_uses: 3,
+        user_location: {type: 'approximate', country: 'US', timezone: SCAN_TZ}}],
+      messages: messages
+    }),
+    muteHttpExceptions: true
+  });
+  let cost = 0;
+  let pending = items.map(c => ({c: c, messages: [{role: 'user', content: 'Sealed product: ' + c.name + (c.set ? '\nSet: ' + c.set : '')}]}));
+  // A long search can pause partway ("pause_turn"); sending the answer so far back lets it finish.
+  for (let round = 0; round < 3 && pending.length; round++) {
+    let res;
+    try { res = UrlFetchApp.fetchAll(pending.map(p => request(p.messages))); } catch (e) { break; }
+    const again = [];
+    res.forEach((r, i) => {
+      if (r.getResponseCode() !== 200) return;
+      let data;
+      try { data = JSON.parse(r.getContentText()); } catch (e) { return; }
+      const u = data.usage || {};
+      cost += ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0)) * SCAN_SEALED_PRICE.input / 1e6
+        + (u.output_tokens || 0) * SCAN_SEALED_PRICE.output / 1e6
+        + ((u.server_tool_use && u.server_tool_use.web_search_requests) || 0) * SCAN_SEALED_PRICE.search;
+      const p = pending[i];
+      if (data.stop_reason === 'pause_turn') {
+        p.messages = p.messages.concat([{role: 'assistant', content: data.content}]);
+        again.push(p);
+      } else {
+        scanSealedApply_(p.c, data.content);
+      }
+    });
+    pending = again;
+  }
+  return cost;
+}
+
+// Reads the JSON line at the end of the answer and puts the price on the item.
+function scanSealedApply_(c, content) {
+  const text = (content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  const found = text.match(/\{[^{}]*"price"[^{}]*\}/g);
+  if (!found) return;
+  let r;
+  try { r = JSON.parse(found[found.length - 1]); } catch (e) { return; }
+  const price = Number(r.price);
+  if (r.price == null || !isFinite(price) || price <= 0) return;
+  c.price = Math.round(price * 100) / 100;
+  c.priceNote = 'Web price' + (r.product ? ' for ' + r.product : '') + (r.source ? ' (' + r.source + ')' : '') + '. Tap TCGplayer to double-check.';
+  if (r.note) c.checks.push(String(r.note));
 }
 
 /* ---------- 2. add to the sheet ---------- */
