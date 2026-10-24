@@ -331,31 +331,26 @@ function parse(key, rows){
 }
 
 /* ---------- loading creatures ---------- */
-// Original drawings (not any game's characters). A phoenix flaps while the sheet refreshes; a raiju, the
-// lightning beast of Japanese folklore, gallops while a scan runs. Moves come from app.css; Reduce Motion stills them.
-const PHOENIX = `<svg class="phx" viewBox="0 0 120 96" aria-hidden="true">
+// Original drawings (not any game's characters). While the sheet refreshes, a phoenix flips, casts a fireball
+// that writes "Refreshing" in fire, the word burns to ash, and it casts again (one 3.6s loop, timed in app.css).
+// A raiju, the lightning beast of Japanese folklore, gallops while a scan runs. Reduce Motion stills both.
+const PHOENIX = `<svg class="phx" viewBox="0 0 100 100" aria-hidden="true">
   <defs>
-    <linearGradient id="phxBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC83D"/><stop offset=".55" stop-color="#F28A1E"/><stop offset="1" stop-color="#D6402B"/></linearGradient>
-    <linearGradient id="phxFlame" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#F28A1E"/><stop offset=".55" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
-    <linearGradient id="phxWing" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F28A1E"/><stop offset="1" stop-color="#FFC83D"/></linearGradient>
+    <linearGradient id="phxBody" gradientUnits="userSpaceOnUse" x1="86" y1="22" x2="8" y2="84"><stop offset="0" stop-color="#FFD45C"/><stop offset=".45" stop-color="#F28A1E"/><stop offset=".8" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
+    <linearGradient id="phxWing" gradientUnits="userSpaceOnUse" x1="60" y1="44" x2="14" y2="8"><stop offset="0" stop-color="#F28A1E"/><stop offset=".6" stop-color="#FFC83D"/><stop offset="1" stop-color="#FFF3C4"/></linearGradient>
+    <linearGradient id="phxRib" gradientUnits="userSpaceOnUse" x1="40" y1="66" x2="2" y2="90"><stop offset="0" stop-color="#F28A1E"/><stop offset=".6" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
   </defs>
-  <g class="phx-ember"><circle cx="34" cy="74" r="1.8" fill="#FFC83D"/><circle cx="22" cy="68" r="1.4" fill="#F28A1E"/><circle cx="42" cy="80" r="1.2" fill="#FFF3C4"/></g>
-  <g class="phx-bob">
-    <g class="phx-tail">
-      <path d="M50 54 C42 48 30 42 16 44 C27 39 38 41 47 48Z" fill="url(#phxFlame)" opacity=".75"/>
-      <path d="M50 58 C38 60 24 70 6 66 C19 62 26 56 34 54 C40 52 46 53 50 54Z" fill="url(#phxFlame)"/>
-      <path d="M51 62 C42 70 30 84 12 86 C23 78 30 70 38 64Z" fill="url(#phxFlame)" opacity=".85"/>
-      <path d="M50 57 C41 58 31 63 19 62 C28 59 34 56 40 55 C44 54 48 55 50 56Z" fill="#FFC83D" opacity=".9"/>
-    </g>
-    <path class="phx-wing back" d="M62 50 C57 35 49 23 36 14 C41 24 41 30 39 34 C35 28 29 24 23 24 C29 32 31 38 31 44 C38 44 48 46 62 54Z" fill="#D6402B"/>
-    <path d="M46 58 C46 46 58 40 70 42 C80 43 86 50 84 58 C82 68 70 74 60 72 C52 70 46 66 46 58Z" fill="url(#phxBody)"/>
-    <ellipse cx="66" cy="61" rx="10" ry="6" fill="#FFF3C4" opacity=".55"/>
-    <path d="M74 47 C77 40 80 34 86 30 L93 40 C89 46 84 50 78 52Z" fill="#F28A1E"/>
-    <path class="phx-crest" d="M82 32 C80 23 84 16 90 12 C88 18 90 22 92 24 C94 20 98 18 103 18 C99 22 97 28 93 32Z" fill="#FFC83D"/>
-    <circle cx="87" cy="38" r="9" fill="url(#phxBody)"/>
-    <path d="M95 36 L105 39.5 L95 43Z" fill="#B5521B"/>
-    <circle cx="90" cy="36" r="2.1" fill="#3A1A12"/><circle cx="90.7" cy="35.3" r=".7" fill="#FFF"/>
-    <path class="phx-wing front" d="M64 52 C60 36 52 24 40 16 C46 26 46 32 44 36 C40 30 34 27 28 28 C34 36 36 42 36 48 C42 48 52 50 64 58Z" fill="url(#phxWing)"/>
+  <g class="phx-ember"><circle cx="24" cy="80" r="1.6" fill="#FFC83D"/><circle cx="14" cy="72" r="1.2" fill="#F28A1E"/><circle cx="32" cy="86" r="1" fill="#FFF3C4"/></g>
+  <g class="phx-flip">
+    <path class="phx-rib r1" d="M38 66 C28 76 16 80 2 76 C12 74 20 70 26 64 Z" fill="url(#phxRib)"/>
+    <path class="phx-rib r2" d="M40 70 C34 82 22 92 6 94 C16 88 24 80 28 70 Z" fill="url(#phxRib)" opacity=".85"/>
+    <g transform="translate(-2 1) rotate(-8 57 42)"><path class="phx-wing back" d="M57 42 C60 30 50 14 30 4 C38 12 40 18 39 22 C32 15 22 10 12 10 C20 16 24 22 25 27 C18 24 10 24 3 26 C14 32 26 40 38 45 C46 48 54 48 57 42 Z" fill="#D6402B" opacity=".9"/></g>
+    <path d="M70 23 C77 21 83 25 84 31 C84 35 81 38 79 40 C76 46 70 50 65 55 C57 63 46 70 34 74 C26 77 18 79 10 85 C15 75 21 70 26 66 C20 68 16 68 12 70 C20 60 30 56 40 52 C50 48 57 41 61 33 C63 27 66 24 70 23 Z" fill="url(#phxBody)"/>
+    <path class="phx-core" d="M72 28 C76 29 78 32 77 36 C74 44 64 52 51 59 C43 63 35 67 27 73 C36 62 47 54 57 46 C63 40 67 31 72 28 Z" fill="#FFF3C4" opacity=".75"/>
+    <path class="phx-crest" d="M70 24 C66 16 66 10 70 4 C70 10 72 14 75 17 C75 11 78 7 84 5 C80 10 80 15 81 19 C84 16 88 15 92 16 C87 19 84 23 80 25 Z" fill="#FFC83D"/>
+    <path d="M83 29 C88 29 92 31 94 34 C91 34 88 35 84 36 Z" fill="#B5521B"/><path d="M83 29 C87 29 90 30 92 32 C89 31 86 31 83 31 Z" fill="#FFD45C"/>
+    <path d="M74.5 29 C76 27.4 78.6 27.4 80 29 C78.6 30.6 76 30.6 74.5 29 Z" fill="#5A1A0E"/><circle cx="78.2" cy="28.4" r=".7" fill="#FFF"/>
+    <path class="phx-wing front" d="M60 44 C60 30 50 14 30 4 C38 12 40 18 39 22 C32 15 22 10 12 10 C20 16 24 22 25 27 C18 24 10 24 3 26 C14 32 26 40 38 45 C46 48 54 48 60 44 Z" fill="url(#phxWing)"/>
   </g>
 </svg>`;
 const RAIJU = `<svg class="rju" viewBox="0 0 160 96" aria-hidden="true">
@@ -1140,7 +1135,7 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.datase
 $("main").addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t && !e.target.closest("button")) openDetail(+t.dataset.i); });
 $("main").addEventListener("keydown", e => { const t = e.target.closest("[data-i]"); if (t && e.key === "Enter") openDetail(+t.dataset.i); });
 $("refresh").onclick = () => loadAll();
-document.body.insertAdjacentHTML("beforeend", `<div class="loadfx" id="loadfx" role="status" hidden>${PHOENIX}<span>Refreshing from Google Sheets…</span></div>`);
+document.body.insertAdjacentHTML("beforeend", `<div class="loadfx" id="loadfx" role="status" hidden>${PHOENIX}<span class="fx-word" aria-hidden="true"><i class="fx-ball"></i>${[..."Refreshing"].map((c, i) => `<span style="--i:${i}">${c}</span>`).join("")}${[[12, 0], [38, .15], [62, .3], [86, .45]].map(([x, d]) => `<i class="fx-ash" style="--x:${x}%;--d:${d}s"></i>`).join("")}</span><span class="sr">Refreshing</span></div>`);
 setInterval(() => { if (!S.busy) $("stamp").textContent = ago(S.at.collection); }, 60000);
 initScan();
 boot();

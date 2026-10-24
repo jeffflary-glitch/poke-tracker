@@ -261,23 +261,41 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .bmode{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .bmode legend{padding:0;margin-bottom:4px}
 /* loading creatures (drawings in app.js) */
-.loadfx{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:8px;padding:4px 16px 4px 6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 24px rgba(22,32,43,.18);font-size:14px;font-weight:500;white-space:nowrap}
+.loadfx{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:6px;padding:4px 20px 4px 12px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 24px rgba(22,32,43,.18);white-space:nowrap}
 .loadfx[hidden]{display:none}
-.phx{width:74px;height:59px;overflow:visible}
-.phx *,.rju *{transform-box:view-box}
-.phx-bob{animation:phx-bob 1.2s ease-in-out infinite}
-.phx-wing{transform-origin:64px 52px;animation:phx-flap .6s ease-in-out infinite}
-.phx-wing.back{animation-delay:-.08s}
-.phx-tail{transform-origin:50px 58px;animation:phx-tail .45s ease-in-out infinite alternate}
-.phx-crest{transform-origin:88px 32px;animation:phx-tail .3s ease-in-out infinite alternate}
+.phx{width:56px;height:56px;overflow:visible}
+.phx *{transform-box:view-box}
+.phx-flip{transform-origin:50px 50px;animation:phx-seq 3.6s cubic-bezier(.45,0,.3,1) infinite}
+.phx-wing{transform-origin:59px 44px;animation:phx-flap .5s ease-in-out infinite}
+.phx-wing.back{animation-delay:-.07s}
+.phx-rib{transform-origin:36px 68px;animation:phx-wave .7s ease-in-out infinite alternate}
+.phx-rib.r2{animation-delay:-.35s}
+.phx-crest{transform-origin:76px 24px;animation:phx-wave .4s ease-in-out infinite alternate}
+.phx-core{animation:phx-glow .32s steps(2) infinite alternate}
 .phx-ember circle{animation:phx-ember 1.4s ease-out infinite}
 .phx-ember circle:nth-child(2){animation-delay:-.5s}
 .phx-ember circle:nth-child(3){animation-delay:-1s}
-@keyframes phx-bob{50%{transform:translateY(-5px)}}
-@keyframes phx-flap{0%,100%{transform:rotate(6deg)}50%{transform:rotate(-58deg) scaleY(.85)}}
-@keyframes phx-tail{to{transform:skewY(-8deg) scaleX(1.08)}}
+@keyframes phx-seq{0%{transform:translate(0,0) rotate(0)}8%{transform:translate(0,-9px) rotate(-180deg)}16%{transform:translate(0,0) rotate(-360deg)}20%{transform:translate(-3px,1px) rotate(-352deg)}24%{transform:translate(4px,0) rotate(-366deg)}32%,100%{transform:translate(0,0) rotate(-360deg)}}
+@keyframes phx-flap{0%,100%{transform:rotate(4deg)}50%{transform:rotate(-44deg) scaleY(.82)}}
+@keyframes phx-wave{to{transform:skewY(-7deg) rotate(4deg)}}
+@keyframes phx-glow{to{opacity:.45}}
 @keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-8px,-34px);opacity:0}}
+.fx-word{position:relative;display:inline-flex;font-family:var(--f-display);font-weight:800;font-size:18px;letter-spacing:.02em}
+.fx-word span{display:inline-block;background:linear-gradient(180deg,#FFD45C 10%,#F28A1E 55%,#D6402B 95%);-webkit-background-clip:text;background-clip:text;color:transparent;animation:fx-letter 3.6s linear infinite backwards;animation-delay:calc(var(--i) * .08s)}
+.fx-ball{position:absolute;left:0;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:radial-gradient(circle,#FFF6D6 0 25%,#FFC83D 45%,#F28A1E 68%,rgba(214,64,43,0) 72%);box-shadow:0 0 10px 3px rgba(255,170,40,.55),-8px 0 7px -1px rgba(242,138,30,.6);opacity:0;animation:fx-ball 3.6s linear infinite}
+.fx-ash{position:absolute;left:var(--x);top:45%;width:3px;height:3px;border-radius:50%;background:#9A9A9A;opacity:0;animation:fx-ash 3.6s ease-out infinite backwards;animation-delay:var(--d)}
+@keyframes fx-letter{
+  0%,23%{opacity:0;transform:translateY(4px) scale(.5);filter:grayscale(0) brightness(2.2) blur(1.5px) drop-shadow(0 0 0 #FFC83D)}
+  27%{opacity:1;transform:translateY(0) scale(1.15);filter:grayscale(0) brightness(1.8) blur(0) drop-shadow(0 0 5px #FFC83D)}
+  33%,62%{opacity:1;transform:translateY(0) scale(1);filter:grayscale(0) brightness(1) blur(0) drop-shadow(0 0 2px #F28A1E)}
+  72%{opacity:1;transform:translateY(0) scale(1);filter:grayscale(1) brightness(.8) blur(0) drop-shadow(0 0 0 #F28A1E)}
+  86%,100%{opacity:0;transform:translateY(-10px) scale(1.08);filter:grayscale(1) brightness(.8) blur(2.5px) drop-shadow(0 0 0 #F28A1E)}
+}
+@keyframes fx-ball{0%,21%{left:-10px;opacity:0;transform:scale(.4)}24%{left:-4px;opacity:1;transform:scale(1)}46%{left:100%;opacity:1;transform:scale(1)}50%,100%{left:100%;opacity:0;transform:scale(1.8)}}
+@keyframes fx-ash{0%,68%{opacity:0;transform:translate(0,0)}74%{opacity:.9}96%,100%{opacity:0;transform:translate(-6px,-18px)}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rju{width:170px;height:102px;overflow:visible}
+.rju *{transform-box:view-box}
 .rju-bob{transform-origin:80px 50px;animation:rju-bob .42s ease-in-out infinite}
 .rju .rju-leg{transform-box:fill-box;transform-origin:50% 6%;animation:rju-run .42s ease-in-out infinite alternate}
 .rju-leg.front.near,.rju-leg.back.far{animation-direction:alternate-reverse}
