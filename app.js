@@ -594,7 +594,7 @@ function updateList(){
   const rows = filtered();
   const qty = rows.reduce((a,r) => a + r.qty, 0), val = rows.reduce((a,r) => a + r.total, 0);
   $("count").textContent = `${rows.length} rows · ${int(qty)} items · ${usd(val)}`;
-  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === S.filter)));
+  document.querySelectorAll(".chip[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === S.filter)));
   $("colList").innerHTML = rows.length ? rows.map(r => `
     <li class="row t-${r.tier} tap" data-i="${r.i}" tabindex="0">
       <span class="thumb"${picAttrs(r)}></span>

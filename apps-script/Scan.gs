@@ -403,7 +403,7 @@ const SCAN_WEB_MODEL = 'claude-haiku-5-5';
 const SCAN_WEB_EFFORT = 'medium';
 const SCAN_WEB_PRICE = {input: 0.10, output: 0.50, search: 0.01};   // $ per million tokens, $ per search
 
-const SCAN_WEB_SOURCES = [
+const SCAN_WEB_RULES = [
   'Never use MSRP, presale prices, a single seller\'s asking price, or the lowest listing.',
   'End your answer with exactly one line of JSON and nothing after it, in this shape:'
 ];
@@ -413,7 +413,7 @@ const SCAN_SEALED_SYSTEM = [
   'Search the web. Use the TCGplayer market price (what it has recently sold for) from tcgplayer.com or a site that shows it, such as pricecharting.com or pokeinvesting.com. If none is listed, use recent eBay sold prices.',
   'Match the exact product: same set and same product type (booster pack, sleeved booster, blister, booster bundle, Elite Trainer Box, Pokémon Center Elite Trainer Box, mini tin, tin, collection box, booster box). If the name doesn\'t say which design of a tin or box it is and the designs sell for different prices, use the typical price and say so in the note.',
   'Give the price of one unit.'
-].concat(SCAN_WEB_SOURCES, [
+].concat(SCAN_WEB_RULES, [
   '{"price": 12.34, "product": "the product name the price is for", "source": "e.g. TCGplayer market price via PriceCharting", "note": ""}',
   'Use "price": null if you can\'t find a trustworthy current price.'
 ]).join('\n');
@@ -423,7 +423,7 @@ const SCAN_CARD_SYSTEM = [
   'Another model read the card from a photo, and a card database could not fully confirm it. The reading may be wrong about the set, the number or the name.',
   'Search the web to confirm which card it is. The printed set code and the total after the slash (the "084" in 045/084) identify the set more reliably than the set name; the number identifies the card within the set. Keep the name the photo shows unless that number in that set is clearly a different card.',
   'Then find the Near Mint TCGplayer market price (what it has recently sold for) for the stated finish: Normal, Holofoil, Reverse Holofoil, Poké Ball pattern or Master Ball pattern. Use tcgplayer.com or a site that shows TCGplayer prices: pricecharting.com, scrydex.com, pokemonwizard.com, pokeinvesting.com.'
-].concat(SCAN_WEB_SOURCES, [
+].concat(SCAN_WEB_RULES, [
   '{"name": "card name as printed", "set": "full English set name as TCGplayer writes it", "number": "045/084", "price": 1.23, "source": "e.g. TCGplayer market price via Scrydex (Reverse Holofoil)", "confidence": "high", "note": ""}',
   'confidence is "high" when a source clearly shows this card, set and number; "medium" when it probably is; "low" when you couldn\'t confirm it.',
   'note: one short line on anything still uncertain (e.g. "could be the Poké Ball pattern, which sells for $8"), otherwise "".',
@@ -781,7 +781,7 @@ function scanRemove_(item, qty, batch, why) {
       scanWriteRows_(log, scanFirstEmptyRow_(log), [[date, want[0], want[1], want[2], vals[i][4], n, reason, value, sold, want[3], note]], {numCol: 4, dateCol: 1});
     }
     SpreadsheetApp.flush();
-    const out = {name: want[0], removed: n, left: have - n, loc: want[3], grading: grading, reason: reason, sold: sold, next: scanNextText_(scanUsedSpots_(col))};
+    const out = {name: want[0], removed: n, left: have - n, loc: want[3], grading: grading, reason: reason, sold: sold};
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
     return out;
   } finally {
