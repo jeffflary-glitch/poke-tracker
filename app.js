@@ -336,53 +336,142 @@ function parse(key, rows){
 // A raiju, the lightning beast of Japanese folklore, gallops while a scan runs. Reduce Motion stills both.
 const PHOENIX = `<svg class="phx" viewBox="0 0 100 100" aria-hidden="true">
   <defs>
-    <linearGradient id="phxBody" gradientUnits="userSpaceOnUse" x1="86" y1="22" x2="8" y2="84"><stop offset="0" stop-color="#FFD45C"/><stop offset=".45" stop-color="#F28A1E"/><stop offset=".8" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
-    <linearGradient id="phxWing" gradientUnits="userSpaceOnUse" x1="60" y1="44" x2="14" y2="8"><stop offset="0" stop-color="#F28A1E"/><stop offset=".6" stop-color="#FFC83D"/><stop offset="1" stop-color="#FFF3C4"/></linearGradient>
-    <linearGradient id="phxRib" gradientUnits="userSpaceOnUse" x1="40" y1="66" x2="2" y2="90"><stop offset="0" stop-color="#F28A1E"/><stop offset=".6" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
+    <linearGradient id="phxBody" gradientUnits="userSpaceOnUse" x1="86" y1="22" x2="10" y2="84"><stop offset="0" stop-color="#FFD45C"/><stop offset=".4" stop-color="#F59A22"/><stop offset=".75" stop-color="#E0461F"/><stop offset="1" stop-color="#B8321F"/></linearGradient>
+    <radialGradient id="phxWingF" gradientUnits="userSpaceOnUse" cx="60" cy="44" r="56"><stop offset="0" stop-color="#E0461F"/><stop offset=".4" stop-color="#F59A22"/><stop offset=".75" stop-color="#FFC83D"/><stop offset="1" stop-color="#FFF3C4"/></radialGradient>
+    <radialGradient id="phxWingB" gradientUnits="userSpaceOnUse" cx="57" cy="42" r="52"><stop offset="0" stop-color="#8E1F12"/><stop offset=".5" stop-color="#C8321F"/><stop offset="1" stop-color="#F28A1E"/></radialGradient>
+    <radialGradient id="phxPlume" gradientUnits="userSpaceOnUse" cx="38" cy="66" r="56"><stop offset="0" stop-color="#FFC83D"/><stop offset=".35" stop-color="#F28A1E"/><stop offset=".8" stop-color="#D6402B"/><stop offset="1" stop-color="#8E1F12"/></radialGradient>
+    <linearGradient id="phxCrest" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F28A1E"/><stop offset="1" stop-color="#FFF3C4"/></linearGradient>
+    <filter id="phxBlur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <clipPath id="phxClip"><path d="M70 23 C77 21 83 25 84 31 C84 35 81 38 79 40 C76 46 70 50 65 55 C57 63 46 70 34 74 C26 77 18 79 12 82 C17 74 22 70 27 66 C21 67 17 67 13 68 C21 59 30 55 40 52 C50 48 57 41 61 33 C63 27 66 24 70 23 Z"/></clipPath>
   </defs>
-  <g class="phx-ember"><circle cx="24" cy="80" r="1.6" fill="#FFC83D"/><circle cx="14" cy="72" r="1.2" fill="#F28A1E"/><circle cx="32" cy="86" r="1" fill="#FFF3C4"/></g>
+  <g class="phx-ember"><circle cx="24" cy="82" r="1.6" fill="#FFC83D"/><circle cx="12" cy="74" r="1.2" fill="#F28A1E"/><circle cx="32" cy="88" r="1" fill="#FFF3C4"/><circle cx="18" cy="90" r="1.3" fill="#FFC83D"/><circle cx="6" cy="84" r=".9" fill="#FFF3C4"/></g>
   <g class="phx-flip">
-    <path class="phx-rib r1" d="M38 66 C28 76 16 80 2 76 C12 74 20 70 26 64 Z" fill="url(#phxRib)"/>
-    <path class="phx-rib r2" d="M40 70 C34 82 22 92 6 94 C16 88 24 80 28 70 Z" fill="url(#phxRib)" opacity=".85"/>
-    <g transform="translate(-2 1) rotate(-8 57 42)"><path class="phx-wing back" d="M57 42 C60 30 50 14 30 4 C38 12 40 18 39 22 C32 15 22 10 12 10 C20 16 24 22 25 27 C18 24 10 24 3 26 C14 32 26 40 38 45 C46 48 54 48 57 42 Z" fill="#D6402B" opacity=".9"/></g>
-    <path d="M70 23 C77 21 83 25 84 31 C84 35 81 38 79 40 C76 46 70 50 65 55 C57 63 46 70 34 74 C26 77 18 79 10 85 C15 75 21 70 26 66 C20 68 16 68 12 70 C20 60 30 56 40 52 C50 48 57 41 61 33 C63 27 66 24 70 23 Z" fill="url(#phxBody)"/>
-    <path class="phx-core" d="M72 28 C76 29 78 32 77 36 C74 44 64 52 51 59 C43 63 35 67 27 73 C36 62 47 54 57 46 C63 40 67 31 72 28 Z" fill="#FFF3C4" opacity=".75"/>
-    <path class="phx-crest" d="M70 24 C66 16 66 10 70 4 C70 10 72 14 75 17 C75 11 78 7 84 5 C80 10 80 15 81 19 C84 16 88 15 92 16 C87 19 84 23 80 25 Z" fill="#FFC83D"/>
-    <path d="M83 29 C88 29 92 31 94 34 C91 34 88 35 84 36 Z" fill="#B5521B"/><path d="M83 29 C87 29 90 30 92 32 C89 31 86 31 83 31 Z" fill="#FFD45C"/>
-    <path d="M74.5 29 C76 27.4 78.6 27.4 80 29 C78.6 30.6 76 30.6 74.5 29 Z" fill="#5A1A0E"/><circle cx="78.2" cy="28.4" r=".7" fill="#FFF"/>
-    <path class="phx-wing front" d="M60 44 C60 30 50 14 30 4 C38 12 40 18 39 22 C32 15 22 10 12 10 C20 16 24 22 25 27 C18 24 10 24 3 26 C14 32 26 40 38 45 C46 48 54 48 60 44 Z" fill="url(#phxWing)"/>
+    <path class="phx-aura" d="M70 23 C77 21 83 25 84 31 C84 35 81 38 79 40 C76 46 70 50 65 55 C57 63 46 70 34 74 C26 77 18 79 12 82 C17 74 22 70 27 66 C21 67 17 67 13 68 C21 59 30 55 40 52 C50 48 57 41 61 33 C63 27 66 24 70 23 Z" fill="#FF7A1A" filter="url(#phxBlur)" opacity=".4"/>
+    <g class="phx-rib r1"><path d="M36.3 63.1 C22.7 65.9 16.8 82.1 3.4 86 C18.5 85 25.4 70.6 39.7 68.9 Z" fill="url(#phxPlume)"/><path d="M3.4 86 Q8.3 79.2 10.9 81.7 Q11.7 85.1 3.4 86 Z" fill="#FFC83D"/><circle cx="8.6" cy="83" r="1.2" fill="#B8321F"/><path d="M37.9 62 C19.9 57.4 2.5 71.2 -16 67.9 C2.7 75.2 20.1 63.8 38.1 70 Z" fill="url(#phxPlume)"/><path d="M-14.8 67.8 Q-7.3 64.2 -6.2 67.5 Q-7 71 -14.8 67.8 Z" fill="#FFC83D"/><circle cx="-8.8" cy="67.6" r="1.2" fill="#B8321F"/><path d="M39.4 63.1 C28.9 53.1 11.6 56.9 0.3 47.6 C10.2 59.8 26.6 57.7 36.6 68.9 Z" fill="url(#phxPlume)"/><path d="M0.4 47.7 Q8.8 48 8.2 51.5 Q5.8 54.1 0.4 47.7 Z" fill="#FFC83D"/><circle cx="5.9" cy="50.3" r="1.2" fill="#B8321F"/></g>
+    <g class="phx-rib r2"><path d="M37 62.3 C23.5 73 5.4 66.6 -8.4 78.4 C6.3 70.2 25 78.8 39 69.7 Z" fill="url(#phxPlume)"/><path d="M-7.7 78.3 Q-1.2 73 0.7 76 Q0.6 79.5 -7.7 78.3 Z" fill="#FFC83D"/><circle cx="-1.9" cy="76.7" r="1.2" fill="#B8321F"/><path d="M38.7 62.5 C21.4 64.6 7.1 52.5 -10.9 55.6 C6.4 56 20.2 70.3 37.3 69.5 Z" fill="url(#phxPlume)"/><path d="M-10.1 55.8 Q-1.9 54 -1.6 57.6 Q-3.3 60.7 -10.1 55.8 Z" fill="#FFC83D"/><circle cx="-4.2" cy="57" r="1.2" fill="#B8321F"/></g>
+    <g transform="translate(-3 1) rotate(-10 57 42)"><g class="phx-wing back">
+    <path d="M55.7 37.4 Q38.6 33 24.4 35.2 Q38.3 40.6 55.4 44.3 Z" fill="url(#phxWingB)"/>
+    <path d="M55.6 40.9 Q38.5 37.2 27.5 36.2" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M54.5 36 Q34.8 27.2 17.3 25.6 Q33 34.6 52.8 42.7 Z" fill="url(#phxWingB)"/>
+    <path d="M53.7 39.4 Q33.8 31.2 20.8 27.4" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M53.3 34.8 Q33.1 20.8 14.1 14.4 Q29.8 27.6 50.3 41 Z" fill="url(#phxWingB)"/>
+    <path d="M51.8 37.9 Q31.3 24.5 17.7 17.2" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M52 33.7 Q33.6 14.5 15 3.4 Q28.9 20.5 47.8 39.2 Z" fill="url(#phxWingB)"/>
+    <path d="M49.9 36.4 Q31.1 17.8 18.2 7" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M50.7 32.8 Q36.6 10.2 20.8 -4.6 Q30.8 15 45.4 37.2 Z" fill="url(#phxWingB)"/>
+    <path d="M48 35 Q33.5 12.8 23.2 -0.4" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M49.2 31.9 Q41.1 8.7 29.5 -7.6 Q34.4 12.2 43.1 35.1 Z" fill="url(#phxWingB)"/>
+    <path d="M46.1 33.5 Q37.5 10.6 30.7 -3.3" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M47.6 31.1 Q45.6 10.6 38.5 -4.6 Q38.3 12.7 40.9 33 Z" fill="url(#phxWingB)"/>
+    <path d="M44.2 32 Q41.6 11.7 38.6 -0.8" stroke="#FF9A4A" stroke-width=".6" fill="none" opacity="0.35"/>
+    <path d="M55.8 37.5 Q45.8 30.9 35.8 30.4 Q43.6 37.1 53.8 43.1 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M54.5 36.3 Q44.6 26.9 33.8 23.6 Q41.2 32.5 51.4 41.4 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M53.1 35.2 Q44.6 23.2 34 17.1 Q40.1 27.9 49 39.5 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M51.6 34.2 Q45.8 20.7 36.7 12.5 Q40.4 24.4 46.7 37.6 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M50.1 33.3 Q47.6 19.9 40.7 10.9 Q41.5 22.3 44.5 35.5 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M48.3 32.4 Q49.1 21 44.6 12.5 Q42.6 22.1 42.5 33.5 Z" fill="#B8321F" opacity=".9"/>
+    <path d="M58.8 37.1 Q51.3 27.9 40.6 28.1 Q45.7 37.5 53.7 45.8 Z" fill="#D6402B"/>
+    <path d="M57.1 38.6 Q52.6 32.6 46.2 31.8 Q49.2 37.6 54 43.2 Z" fill="#F28A1E" opacity=".85"/>
+    </g></g>
+    <g class="phx-flick"><path d="M52 46 q-3 -6 -1 -11 q1 4 4 6 q1 -3 0 -6 q4 4 2 11 Z" fill="#F28A1E"/><path d="M58 41 q-3 -6 -1 -11 q1 4 4 6 q1 -3 0 -6 q4 4 2 11 Z" fill="#FFC83D"/><path d="M46 50 q-3 -6 -1 -11 q1 4 4 6 q1 -3 0 -6 q4 4 2 11 Z" fill="#D6402B"/><path d="M63 35 q-3 -6 -1 -11 q1 4 4 6 q1 -3 0 -6 q4 4 2 11 Z" fill="#F59A22"/></g>
+    <path d="M70 23 C77 21 83 25 84 31 C84 35 81 38 79 40 C76 46 70 50 65 55 C57 63 46 70 34 74 C26 77 18 79 12 82 C17 74 22 70 27 66 C21 67 17 67 13 68 C21 59 30 55 40 52 C50 48 57 41 61 33 C63 27 66 24 70 23 Z" fill="url(#phxBody)"/>
+    <path d="M36 56 q2 2.4 4 0 M40.6 53.4 q2 2.4 4 0 M45.2 50.8 q2 2.4 4 0 M49.8 48.2 q2 2.4 4 0 M54.4 45.6 q2 2.4 4 0 M59 43 q2 2.4 4 0 M63.6 40.4 q2 2.4 4 0 M68.2 37.8 q2 2.4 4 0 M72.8 35.2 q2 2.4 4 0 M38.2 59.6 q2 2.4 4 0 M42.8 57 q2 2.4 4 0 M47.4 54.4 q2 2.4 4 0 M52 51.8 q2 2.4 4 0 M56.6 49.2 q2 2.4 4 0 M61.2 46.6 q2 2.4 4 0 M65.8 44 q2 2.4 4 0 M70.4 41.4 q2 2.4 4 0 M75 38.8 q2 2.4 4 0 M40.4 63.2 q2 2.4 4 0 M45 60.6 q2 2.4 4 0 M49.6 58 q2 2.4 4 0 M54.2 55.4 q2 2.4 4 0 M58.8 52.8 q2 2.4 4 0 M63.4 50.2 q2 2.4 4 0 M68 47.6 q2 2.4 4 0 M72.6 45 q2 2.4 4 0 M77.2 42.4 q2 2.4 4 0 M42.6 66.8 q2 2.4 4 0 M47.2 64.2 q2 2.4 4 0 M51.8 61.6 q2 2.4 4 0 M56.4 59 q2 2.4 4 0 M61 56.4 q2 2.4 4 0 M65.6 53.8 q2 2.4 4 0 M70.2 51.2 q2 2.4 4 0 M74.8 48.6 q2 2.4 4 0 M79.4 46 q2 2.4 4 0 M44.8 70.4 q2 2.4 4 0 M49.4 67.8 q2 2.4 4 0 M54 65.2 q2 2.4 4 0 M58.6 62.6 q2 2.4 4 0 M63.2 60 q2 2.4 4 0 M67.8 57.4 q2 2.4 4 0 M72.4 54.8 q2 2.4 4 0 M77 52.2 q2 2.4 4 0 M81.6 49.6 q2 2.4 4 0" clip-path="url(#phxClip)" fill="none" stroke="#FFE08A" stroke-width=".55" opacity=".55"/>
+    <path class="phx-core" d="M72 28 C76 29 78 32 77 36 C74 44 64 52 51 59 C43 63 35 67 27 73 C36 62 47 54 57 46 C63 40 67 31 72 28 Z" fill="#FFF3C4" opacity=".7"/>
+    <g class="phx-crest" fill="url(#phxCrest)">
+      <path d="M69 24 C64 17 63 10 66 3 C67 9 69 13 72 16 Z"/>
+      <path d="M72 23 C70 15 72 8 78 3 C76 9 77 13 79 17 Z"/>
+      <path d="M75 23 C76 16 81 11 88 9 C84 13 82 17 82 21 Z"/>
+      <path d="M78 24 C81 19 87 17 94 18 C89 20 86 23 84 26 Z"/>
+    </g>
+    <path d="M71 26 C74 23.5 79 23 82 25 C79 24.8 76 25.5 73.5 27.5 Z" fill="#B8321F"/>
+    <path d="M83 29 C88 28.6 92.5 31 94.5 34.5 C91 34 88 35 84 36.5 Z" fill="#B5521B"/>
+    <path d="M83 29 C87 29 90.5 30.4 92.5 32.4 C89 31.2 86 31 83 31.2 Z" fill="#FFD45C"/>
+    <circle cx="86.6" cy="31.2" r=".5" fill="#5A1A0E"/>
+    <path d="M74 29.2 C75.8 27.2 79 27.2 80.6 29.2 C79 31 75.8 31 74 29.2 Z" fill="#FFC83D"/>
+    <circle cx="77.6" cy="29.2" r="1.3" fill="#3A0E06"/><circle cx="78.2" cy="28.5" r=".55" fill="#FFF"/>
+    <path d="M78 33 C80 34 82 34 84 33" stroke="#B8321F" stroke-width=".7" fill="none" stroke-linecap="round"/>
+    <g class="phx-wing front">
+    <path d="M58.6 39 Q40 34.2 24.6 36.6 Q39.7 42.5 58.3 46.5 Z" fill="url(#phxWingF)"/>
+    <path d="M58.4 42.8 Q39.9 38.7 28 37.7" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M57.3 37.5 Q35.9 27.9 16.8 26.2 Q33.9 35.9 55.5 44.8 Z" fill="url(#phxWingF)"/>
+    <path d="M56.4 41.2 Q34.8 32.3 20.7 28.1" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M56 36.2 Q34.1 20.9 13.4 14 Q30.4 28.3 52.7 42.9 Z" fill="url(#phxWingF)"/>
+    <path d="M54.3 39.6 Q32.1 25 17.3 17" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M54.6 35 Q34.6 14.2 14.4 2 Q29.5 20.7 50 40.9 Z" fill="url(#phxWingF)"/>
+    <path d="M52.3 38 Q31.8 17.7 17.9 6" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M53.1 34 Q37.9 9.4 20.6 -6.7 Q31.6 14.7 47.4 38.8 Z" fill="url(#phxWingF)"/>
+    <path d="M50.2 36.4 Q34.4 12.3 23.2 -2.1" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M51.5 33 Q42.7 7.8 30.1 -10 Q35.5 11.6 44.9 36.5 Z" fill="url(#phxWingF)"/>
+    <path d="M48.2 34.8 Q38.8 9.9 31.4 -5.3" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M49.7 32.1 Q47.6 9.8 39.9 -6.7 Q39.7 12.1 42.5 34.2 Z" fill="url(#phxWingF)"/>
+    <path d="M46.1 33.2 Q43.3 11.1 40.1 -2.5" stroke="#FFF3C4" stroke-width=".6" fill="none" opacity="0.7"/>
+    <path d="M58.7 39.1 Q47.8 32 37 31.4 Q45.4 38.7 56.5 45.2 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M57.3 37.8 Q46.6 27.6 34.8 24 Q42.8 33.6 53.9 43.3 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M55.8 36.6 Q46.5 23.5 35 16.9 Q41.6 28.7 51.3 41.3 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M54.2 35.5 Q47.9 20.8 38 12 Q41.9 24.8 48.8 39.2 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M52.5 34.5 Q49.8 20 42.3 10.1 Q43.1 22.6 46.4 37 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M50.6 33.6 Q51.4 21.2 46.5 12 Q44.4 22.4 44.2 34.7 Z" fill="#E0461F" opacity=".9"/>
+    <path d="M62 38.6 Q53.8 28.6 42.2 28.9 Q47.7 39.1 56.5 48.1 Z" fill="#F59A22"/>
+    <path d="M60.1 40.3 Q55.2 33.8 48.2 32.9 Q51.5 39.3 56.7 45.3 Z" fill="#FFD45C" opacity=".85"/>
+    </g>
   </g>
 </svg>`;
 const RAIJU = `<svg class="rju" viewBox="0 0 160 96" aria-hidden="true">
   <defs>
-    <linearGradient id="rjuBody" gradientUnits="userSpaceOnUse" x1="0" y1="22" x2="0" y2="74"><stop offset="0" stop-color="#6CB8FF"/><stop offset=".5" stop-color="#2F6FE4"/><stop offset="1" stop-color="#2647A8"/></linearGradient>
+    <linearGradient id="rjuBody" gradientUnits="userSpaceOnUse" x1="0" y1="22" x2="0" y2="74"><stop offset="0" stop-color="#7CC4FF"/><stop offset=".45" stop-color="#2F6FE4"/><stop offset="1" stop-color="#2647A8"/></linearGradient>
     <linearGradient id="rjuGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFF6D6"/><stop offset=".5" stop-color="#FFC83D"/><stop offset="1" stop-color="#F29A1E"/></linearGradient>
+    <radialGradient id="rjuShade" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#1E3F9E" stop-opacity=".55"/><stop offset="1" stop-color="#1E3F9E" stop-opacity="0"/></radialGradient>
+    <filter id="rjuBlur" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3"/></filter>
+    <filter id="rjuGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <clipPath id="rjuClip"><path d="M38 52 C40 44 52 40 70 41 C84 42 96 42 104 40 C109 37 112 31 118 27 C123 21 132 21 138 26 L148 32 C144 35 138 36 132 36 C127 37 123 40 120 44 C117 51 115 57 110 60 C98 63 80 61 66 60 C56 60 46 60 40 57 Z"/></clipPath>
   </defs>
-  <g class="rju-wind" stroke-linecap="round" stroke-width="2.2"><path d="M8 44 H28" stroke="#FFC83D"/><path d="M16 58 H34" stroke="#5FD4FF"/><path d="M6 70 H20" stroke="#FFC83D"/></g>
+  <g class="rju-wind" stroke-linecap="round" stroke-width="2.2"><path d="M8 44 H28" stroke="#FFC83D"/><path d="M16 58 H34" stroke="#5FD4FF"/><path d="M6 70 H20" stroke="#FFC83D"/><path d="M22 34 H36" stroke="#5FD4FF"/></g>
   <g class="rju-bob">
-    <g class="rju-tail">
+    <path class="rju-aura" d="M38 52 C40 44 52 40 70 41 C84 42 96 42 104 40 C109 37 112 31 118 27 C123 21 132 21 138 26 L148 32 C144 35 138 36 132 36 C127 37 123 40 120 44 C117 51 115 57 110 60 C98 63 80 61 66 60 C56 60 46 60 40 57 Z" fill="#5FD4FF" filter="url(#rjuBlur)" opacity=".45"/>
+    <g class="rju-tail" filter="url(#rjuGlow)">
+      <path d="M41 51 L28 47 L32 44 L16 38 L23 36 L6 28 L30 34 L24 37 L38 41 L33 43 Z" fill="#5FD4FF" stroke="#2F6FE4" stroke-width="1" stroke-linejoin="round"/>
       <path d="M40 48 L24 40 L29 37 L12 26 L20 25 L2 12 L28 24 L22 26 L36 34 L31 36 Z" fill="url(#rjuGold)" stroke="#2F6FE4" stroke-width="1.4" stroke-linejoin="round"/>
-      <path class="rju-flick" d="M38 46 L26 38 L30 36 L16 26" fill="none" stroke="#5FD4FF" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="rju-flick" d="M38 46 L26 38 L30 36 L16 26 L22 25 L8 15" fill="none" stroke="#FFFFFF" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
     </g>
-    <path class="rju-leg back far" d="M44 50 C42 58 46 64 44 70 L41 80 C40 83 45 84 47 83 L45 80 L49 70 C53 62 54 56 54 50 Z" fill="#2A4FB8"/>
-    <path class="rju-leg front far" d="M104 52 C103 60 105 68 106 74 L106 82 C106 85 111 85 113 84 L110 81 L110 74 C111 66 112 58 112 52 Z" fill="#2A4FB8"/>
+    <g class="rju-leg back far"><path d="M44 50 C42 58 46 64 44 70 L41 80 C40 83 45 84 47 83 L45 80 L49 70 C53 62 54 56 54 50 Z" fill="#2A4FB8"/><path d="M40.0 76.0 l-3 -2 l2.6 -.6 l-2.4 -3 l3.6 1.6 l1 -2.6 l1.8 3.4 Z" fill="#8FD0FF" opacity=".9"/><path d="M41.0 82.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M43.2 82.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M45.4 82.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path class="rju-paw" d="M39.0 85.5 l-4 1 l3 1.2 l-3.4 2.4" fill="none" stroke="#FFC83D" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g><g class="rju-leg front far"><path d="M104 52 C103 60 105 68 106 74 L106 82 C106 85 111 85 113 84 L110 81 L110 74 C111 66 112 58 112 52 Z" fill="#2A4FB8"/><path d="M105.5 77.0 l-3 -2 l2.6 -.6 l-2.4 -3 l3.6 1.6 l1 -2.6 l1.8 3.4 Z" fill="#8FD0FF" opacity=".9"/><path d="M106.5 84.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M108.7 84.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M110.9 84.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path class="rju-paw" d="M104.5 87.0 l-4 1 l3 1.2 l-3.4 2.4" fill="none" stroke="#FFC83D" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
     <path d="M38 52 C40 44 52 40 70 41 C84 42 96 42 104 40 C109 37 112 31 118 27 C123 21 132 21 138 26 L148 32 C144 35 138 36 132 36 C127 37 123 40 120 44 C117 51 115 57 110 60 C98 63 80 61 66 60 C56 60 46 60 40 57 Z" fill="url(#rjuBody)"/>
-    <path class="rju-leg back near" d="M46 50 C44 58 49 64 47 71 L44 81 C43 84 48 85 50 84 L48 81 L52 71 C56 63 58 56 58 50 Z" fill="url(#rjuBody)"/>
-    <path class="rju-leg front near" d="M101 52 C100 60 102 68 103 75 L103 83 C103 86 108 86 110 85 L107 82 L107 75 C108 67 109 59 109 52 Z" fill="url(#rjuBody)"/>
+    <g clip-path="url(#rjuClip)">
+      <ellipse cx="52" cy="54" rx="13" ry="10" fill="url(#rjuShade)"/>
+      <ellipse cx="102" cy="52" rx="10" ry="9" fill="url(#rjuShade)"/>
+      <path d="M50 44 C66 41 86 42 102 41" stroke="#B8E3FF" stroke-width="1.6" fill="none" opacity=".6"/>
+    </g>
+    <path d="M60.0 42.0 L62.0 40.2 L67.0 41.8 L69.0 40.0 L74.0 41.6 L76.0 39.8 L81.0 41.4 L83.0 39.6 L88.0 41.2 L90.0 39.4 L95.0 41.0 L97.0 39.2 L102.0 40.8 Z" fill="#8FD0FF" opacity=".55"/>
+    <path d="M58.0 59.6 L59.4 62.1 L63.8 59.8 L65.1 62.3 L69.5 60.0 L70.9 62.6 L75.2 60.3 L76.6 62.8 L81.0 60.5 L82.4 63.0 L86.8 60.7 L88.1 63.2 L92.5 61.0 L93.9 63.5 L98.2 61.2 L99.6 63.7 L104.0 61.4 Z" fill="#2647A8"/>
+    <g class="rju-vein" fill="none" stroke="#FFC83D" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" filter="url(#rjuGlow)">
+      <path d="M62 47 L68 50 L66 52 L74 55"/>
+      <path d="M80 45 L86 49 L84 51 L92 54"/>
+    </g>
+    <g class="rju-leg back near"><path d="M46 50 C44 58 49 64 47 71 L44 81 C43 84 48 85 50 84 L48 81 L52 71 C56 63 58 56 58 50 Z" fill="url(#rjuBody)"/><path d="M43.0 77.0 l-3 -2 l2.6 -.6 l-2.4 -3 l3.6 1.6 l1 -2.6 l1.8 3.4 Z" fill="#8FD0FF" opacity=".9"/><path d="M44.0 83.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M46.2 83.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M48.4 83.5 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path class="rju-paw" d="M42.0 86.5 l-4 1 l3 1.2 l-3.4 2.4" fill="none" stroke="#FFC83D" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g><g class="rju-leg front near"><path d="M101 52 C100 60 102 68 103 75 L103 83 C103 86 108 86 110 85 L107 82 L107 75 C108 67 109 59 109 52 Z" fill="url(#rjuBody)"/><path d="M102.5 78.0 l-3 -2 l2.6 -.6 l-2.4 -3 l3.6 1.6 l1 -2.6 l1.8 3.4 Z" fill="#8FD0FF" opacity=".9"/><path d="M103.5 85.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M105.7 85.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path d="M107.9 85.0 l1.4 2.6 l.6 -2.6 Z" fill="#F2FBFF"/><path class="rju-paw" d="M101.5 88.0 l-4 1 l3 1.2 l-3.4 2.4" fill="none" stroke="#FFC83D" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <path d="M108 44 L104 47 L109 48 L103 52 L109 52 L104 57 L111 55 L108 60 L114 55 L117 47 Z" fill="#E4F4FF"/>
     <path d="M120 27 L114 8 L127 23 Z" fill="#2A4FB8"/>
     <path d="M124 25 L122 5 L133 24 Z" fill="#2F6FE4"/><path d="M125.5 21 L124.5 10 L130 22 Z" fill="#FFC83D"/>
-    <path d="M131 28 C133 26 137 26 139 28 C137 30 133 30 131 28 Z" fill="#FFC83D"/><circle cx="135.5" cy="28" r="1.2" fill="#1B2A55"/>
+    <path d="M124.2 22 L122.4 17 L126.4 21 L125.4 15 L128 21.4" fill="none" stroke="#FFF6D6" stroke-width=".6"/>
+    <path d="M122 36 L114 38 L119 39.5 L113 42 L120 42 L116 46 L123 42 Z" fill="#E4F4FF"/>
+    <path d="M128 25 C131 23 136 23 139 25" stroke="#2647A8" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+    <path d="M134 31 C140 30 145 31 148 32" stroke="#B8E3FF" stroke-width="1" fill="none" opacity=".8"/>
+    <path d="M130.5 28 C133 25.8 137 25.8 139.5 28 C137 30 133 30 130.5 28 Z" fill="#FFC83D" filter="url(#rjuGlow)"/>
+    <ellipse cx="135.4" cy="28" rx=".7" ry="1.7" fill="#1B2A55"/><circle cx="136.5" cy="27.2" r=".45" fill="#FFF"/>
+    <path d="M141 34.6 C143 35.4 145.5 35.2 147 34.2" stroke="#1B2A55" stroke-width=".8" fill="none" stroke-linecap="round"/>
     <circle cx="148" cy="32" r="1.6" fill="#1B2A55"/>
-    <g class="rju-mane" fill="none" stroke-linejoin="round" stroke-linecap="round">
-      <path d="M120 30 L110 34 L114 36 L100 41 L104 42 L88 45" stroke="#FFC83D" stroke-width="2.2"/>
-      <path d="M118 34 L108 39 L112 40 L96 46 L99 47 L84 50" stroke="#5FD4FF" stroke-width="1.8"/>
+    <g class="rju-whisk" stroke="#5FD4FF" stroke-width=".7" fill="none" stroke-linecap="round"><path d="M143 33 l5 -2 l-2 2 l6 -1"/><path d="M143 34.5 l5 1 l-2 .6 l6 1.6"/></g>
+    <g class="rju-mane" fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#rjuGlow)">
+      <path d="M121 24 L113 28 L117 29 L106 34 L110 35 L96 40" stroke="#FFC83D" stroke-width="2.2"/>
+      <path d="M120 30 L110 34 L114 36 L100 41 L104 42 L88 45" stroke="#5FD4FF" stroke-width="2"/>
+      <path d="M119 21 L112 22 L115 24 L104 27 L108 28 L98 32" stroke="#FFF6D6" stroke-width="1.4"/>
+      <path d="M118 34 L108 39 L112 40 L96 46 L99 47 L84 50" stroke="#FFC83D" stroke-width="1.6"/>
     </g>
   </g>
   <g class="rju-spark" stroke-linejoin="round" stroke-width="1">
-    <path d="M96 14 l-5 8 h4 l-3 7 l8 -10 h-4 l3 -5z" fill="#FFC83D" stroke="#F29A1E"/>
-    <path d="M70 24 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
-    <path d="M140 50 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#FFC83D" stroke="#F29A1E"/>
-    <path d="M30 70 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
+    <path d="M96 10 l-5 8 h4 l-3 7 l8 -10 h-4 l3 -5z" fill="#FFC83D" stroke="#F29A1E"/>
+    <path d="M70 18 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
+    <path d="M150 48 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#FFC83D" stroke="#F29A1E"/>
+    <path d="M28 78 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
+    <path d="M128 6 l-3 5 h2.4 l-1.6 4 l5 -6 h-2.6 l1.6 -3z" fill="#FFF6D6" stroke="#5FD4FF"/>
   </g>
 </svg>`;
 
