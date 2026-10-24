@@ -277,24 +277,26 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 @keyframes phx-flap{0%,100%{transform:rotate(6deg)}50%{transform:rotate(-58deg) scaleY(.85)}}
 @keyframes phx-tail{to{transform:skewY(-8deg) scaleX(1.08)}}
 @keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-8px,-34px);opacity:0}}
-.rju{width:150px;height:103px;overflow:visible}
-.rju-bob{animation:rju-bob .4s ease-in-out infinite}
-.rju-leg{animation:rju-run .4s ease-in-out infinite alternate}
-.rju-leg.back{transform-origin:52px 57px}
-.rju-leg.front{transform-origin:90px 57px}
+.rju{width:170px;height:102px;overflow:visible}
+.rju-bob{transform-origin:80px 50px;animation:rju-bob .42s ease-in-out infinite}
+.rju .rju-leg{transform-box:fill-box;transform-origin:50% 6%;animation:rju-run .42s ease-in-out infinite alternate}
 .rju-leg.front.near,.rju-leg.back.far{animation-direction:alternate-reverse}
-.rju-tail{transform-origin:44px 44px;animation:rju-tail .2s steps(2) infinite}
+.rju-tail{transform-origin:40px 48px;animation:rju-tail .42s ease-in-out infinite}
+.rju-flick,.rju-mane path{animation:rju-flick .24s steps(1) infinite}
+.rju-mane path:nth-child(2){animation-delay:-.12s}
 .rju-wind path{animation:rju-wind .5s linear infinite}
 .rju-wind path:nth-child(2){animation-delay:-.17s}
 .rju-wind path:nth-child(3){animation-delay:-.33s}
 .rju-spark path{opacity:0;animation:rju-spark .9s steps(1) infinite}
-.rju-spark path:nth-child(2){animation-delay:-.3s}
-.rju-spark path:nth-child(3){animation-delay:-.6s}
-@keyframes rju-bob{50%{transform:translateY(-3px)}}
-@keyframes rju-run{from{transform:rotate(32deg)}to{transform:rotate(-32deg)}}
-@keyframes rju-tail{50%{transform:rotate(-6deg) scale(1.04)}}
+.rju-spark path:nth-child(2){animation-delay:-.22s}
+.rju-spark path:nth-child(3){animation-delay:-.45s}
+.rju-spark path:nth-child(4){animation-delay:-.67s}
+@keyframes rju-bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(-1.5deg)}}
+@keyframes rju-run{from{transform:rotate(30deg)}to{transform:rotate(-34deg)}}
+@keyframes rju-tail{50%{transform:rotate(-7deg)}}
+@keyframes rju-flick{0%{opacity:1}50%{opacity:.25}}
 @keyframes rju-wind{from{transform:translateX(12px);opacity:0}30%{opacity:1}to{transform:translateX(-14px);opacity:0}}
-@keyframes rju-spark{0%,55%{opacity:1}56%,100%{opacity:0}}
+@keyframes rju-spark{0%,40%{opacity:1}41%,100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 /* remove */
 .btn.rmbtn{color:var(--bad);border-color:var(--bad);background:transparent}

@@ -358,28 +358,36 @@ const PHOENIX = `<svg class="phx" viewBox="0 0 120 96" aria-hidden="true">
     <path class="phx-wing front" d="M64 52 C60 36 52 24 40 16 C46 26 46 32 44 36 C40 30 34 27 28 28 C34 36 36 42 36 48 C42 48 52 50 64 58Z" fill="url(#phxWing)"/>
   </g>
 </svg>`;
-const RAIJU = `<svg class="rju" viewBox="0 0 140 96" aria-hidden="true">
+const RAIJU = `<svg class="rju" viewBox="0 0 160 96" aria-hidden="true">
   <defs>
-    <linearGradient id="rjuBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5FD4FF"/><stop offset="1" stop-color="#2F6FE4"/></linearGradient>
+    <linearGradient id="rjuBody" gradientUnits="userSpaceOnUse" x1="0" y1="22" x2="0" y2="74"><stop offset="0" stop-color="#6CB8FF"/><stop offset=".5" stop-color="#2F6FE4"/><stop offset="1" stop-color="#2647A8"/></linearGradient>
+    <linearGradient id="rjuGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFF6D6"/><stop offset=".5" stop-color="#FFC83D"/><stop offset="1" stop-color="#F29A1E"/></linearGradient>
   </defs>
-  <g class="rju-wind" stroke="#5FD4FF" stroke-width="2.5" stroke-linecap="round"><path d="M6 48 H26"/><path d="M14 60 H30"/><path d="M4 70 H18"/></g>
+  <g class="rju-wind" stroke-linecap="round" stroke-width="2.2"><path d="M8 44 H28" stroke="#FFC83D"/><path d="M16 58 H34" stroke="#5FD4FF"/><path d="M6 70 H20" stroke="#FFC83D"/></g>
   <g class="rju-bob">
-    <path class="rju-tail" d="M44 46 L30 34 L37 33 L22 18 L31 19 L16 4 L39 22 L31 23 L44 35 L38 36 Z" fill="#F2FBFF" stroke="#5FD4FF" stroke-width="2" stroke-linejoin="round"/>
-    <path class="rju-leg back far" d="M47 56 h7 l-1 24 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="#2F6FE4" opacity=".7"/>
-    <path class="rju-leg front far" d="M85 56 h7 l-1 24 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="#2F6FE4" opacity=".7"/>
-    <path d="M40 50 C40 40 60 36 80 38 C94 39 100 46 98 56 C96 64 84 66 70 66 C54 66 40 62 40 50Z" fill="url(#rjuBody)"/>
-    <path d="M56 62 C64 66 80 66 90 60 C84 58 66 58 56 62Z" fill="#F2FBFF" opacity=".8"/>
-    <path class="rju-leg back near" d="M50 56 h8 l-1 25 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="url(#rjuBody)"/>
-    <path class="rju-leg front near" d="M88 56 h8 l-1 25 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="url(#rjuBody)"/>
-    <path d="M100 30 L97 10 L109 26Z" fill="#2F6FE4"/>
-    <path d="M90 46 C92 36 98 28 106 28 C112 28 116 32 120 35 L131 40 C126 44 119 46 112 48 C104 50 96 52 90 50Z" fill="url(#rjuBody)"/>
-    <path d="M106 29 L108 8 L117 31Z" fill="#5FD4FF"/><path d="M108.5 26 L109.5 15 L114 28Z" fill="#F2FBFF"/>
-    <path d="M118 41 C121 43 126 43 130 41" stroke="#F2FBFF" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-    <circle cx="131" cy="40" r="2" fill="#1B2A55"/>
-    <path d="M107 36 C109 33 113 33 115 36 C113 38 109 38 107 36Z" fill="#1B2A55"/><circle cx="112.5" cy="35.2" r=".8" fill="#FFF"/>
+    <g class="rju-tail">
+      <path d="M40 48 L24 40 L29 37 L12 26 L20 25 L2 12 L28 24 L22 26 L36 34 L31 36 Z" fill="url(#rjuGold)" stroke="#2F6FE4" stroke-width="1.4" stroke-linejoin="round"/>
+      <path class="rju-flick" d="M38 46 L26 38 L30 36 L16 26" fill="none" stroke="#5FD4FF" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+    <path class="rju-leg back far" d="M44 50 C42 58 46 64 44 70 L41 80 C40 83 45 84 47 83 L45 80 L49 70 C53 62 54 56 54 50 Z" fill="#2A4FB8"/>
+    <path class="rju-leg front far" d="M104 52 C103 60 105 68 106 74 L106 82 C106 85 111 85 113 84 L110 81 L110 74 C111 66 112 58 112 52 Z" fill="#2A4FB8"/>
+    <path d="M38 52 C40 44 52 40 70 41 C84 42 96 42 104 40 C109 37 112 31 118 27 C123 21 132 21 138 26 L148 32 C144 35 138 36 132 36 C127 37 123 40 120 44 C117 51 115 57 110 60 C98 63 80 61 66 60 C56 60 46 60 40 57 Z" fill="url(#rjuBody)"/>
+    <path class="rju-leg back near" d="M46 50 C44 58 49 64 47 71 L44 81 C43 84 48 85 50 84 L48 81 L52 71 C56 63 58 56 58 50 Z" fill="url(#rjuBody)"/>
+    <path class="rju-leg front near" d="M101 52 C100 60 102 68 103 75 L103 83 C103 86 108 86 110 85 L107 82 L107 75 C108 67 109 59 109 52 Z" fill="url(#rjuBody)"/>
+    <path d="M120 27 L114 8 L127 23 Z" fill="#2A4FB8"/>
+    <path d="M124 25 L122 5 L133 24 Z" fill="#2F6FE4"/><path d="M125.5 21 L124.5 10 L130 22 Z" fill="#FFC83D"/>
+    <path d="M131 28 C133 26 137 26 139 28 C137 30 133 30 131 28 Z" fill="#FFC83D"/><circle cx="135.5" cy="28" r="1.2" fill="#1B2A55"/>
+    <circle cx="148" cy="32" r="1.6" fill="#1B2A55"/>
+    <g class="rju-mane" fill="none" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M120 30 L110 34 L114 36 L100 41 L104 42 L88 45" stroke="#FFC83D" stroke-width="2.2"/>
+      <path d="M118 34 L108 39 L112 40 L96 46 L99 47 L84 50" stroke="#5FD4FF" stroke-width="1.8"/>
+    </g>
   </g>
-  <g class="rju-spark" fill="#F2FBFF" stroke="#5FD4FF" stroke-width="1" stroke-linejoin="round">
-    <path d="M86 18 l-5 8 h4 l-3 7 l8 -10 h-4 l3 -5z"/><path d="M62 24 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z"/><path d="M122 54 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z"/>
+  <g class="rju-spark" stroke-linejoin="round" stroke-width="1">
+    <path d="M96 14 l-5 8 h4 l-3 7 l8 -10 h-4 l3 -5z" fill="#FFC83D" stroke="#F29A1E"/>
+    <path d="M70 24 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
+    <path d="M140 50 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#FFC83D" stroke="#F29A1E"/>
+    <path d="M30 70 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z" fill="#5FD4FF" stroke="#2F6FE4"/>
   </g>
 </svg>`;
 
