@@ -212,11 +212,67 @@ function openDetail(i){
       <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
       <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
       ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : r.tier === "sealed" ? '<p class="note" style="margin:0">Shows your photo if you\'ve added one, otherwise the set logo.</p>' : ""}
+      <div id="drm"></div>
     </div>`;
   $("dclose").onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
+  Object.assign(RM, {r, open:false, qty:1, busy:false, err:"", done:null, batch:""});
+  renderRemove();
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
   hydrate(d);
+}
+
+/* ---------- remove ---------- */
+// Takes some or all of a row out of the sheet (Scan.gs, action "remove"), behind the same passcode as scanning.
+const RM = {r:null, open:false, qty:1, busy:false, err:"", done:null, batch:""};
+const rmCount = () => Math.max(1, Math.min(RM.r.qty, Math.round(+RM.qty) || 1));
+function rmWhat(){
+  const r = RM.r, n = rmCount();
+  if (n < r.qty) return `Qty goes from ${int(r.qty)} to ${int(r.qty - n)}.`;
+  return `Deletes this row from “${esc(CFG.sheetName)}”.` + (/^Binder/i.test(r.loc) ? ` ${esc(r.loc)} opens up for the next binder card.`
+    : /^Buffer/i.test(r.loc) ? ` ${esc(r.loc)} opens up, and its Grading row is removed too.` : "");
+}
+function removeView(){
+  const r = RM.r, d = RM.done;
+  if (d) return `<p class="rmdone">Removed ${int(d.removed)} × ${esc(d.name)}${d.left ? ` · ${int(d.left)} left` : ""}.</p>
+    ${!d.left && /^(Binder|Buffer)/i.test(d.loc) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${/^Buffer/i.test(d.loc) ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}`;
+  if (!RM.open) return `<button class="btn big rmbtn" type="button" id="rmopen">Remove from collection</button>`;
+  return `<div class="rmbox">
+    <h3>Remove ${esc(r.name)}?</h3>
+    ${r.qty > 1 ? `<label class="field"><span>How many to remove (you have ${int(r.qty)})</span><input id="rmqty" type="number" inputmode="numeric" min="1" max="${r.qty}" value="${esc(RM.qty)}"></label>` : ""}
+    <p class="note" id="rmwhat" style="margin:0">${rmWhat()}</p>
+    ${getPass() ? "" : `<label class="field"><span>Scanner passcode</span><input id="rmpass" type="password" autocomplete="current-password"></label>`}
+    ${RM.err ? `<div class="secerr" role="alert">${esc(RM.err)}</div>` : ""}
+    <div class="rmbar"><button class="btn" type="button" id="rmcancel">Cancel</button><button class="btn rmgo" type="button" id="rmgo"${RM.busy ? " disabled" : ""}>${RM.busy ? '<span class="spin" aria-hidden="true"></span> Removing' : "Remove"}</button></div>
+  </div>`;
+}
+function renderRemove(){
+  const box = $("drm");
+  if (!box || !RM.r) return;
+  box.innerHTML = removeView();
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on("rmopen", () => { Object.assign(RM, {open:true, err:"", batch:Date.now().toString(36) + Math.random().toString(36).slice(2, 8)}); renderRemove(); $("drm").scrollIntoView({block:"end", behavior:"smooth"}); });
+  on("rmcancel", () => { Object.assign(RM, {open:false, err:"", qty:1}); renderRemove(); });
+  on("rmgo", doRemove);
+  const q = $("rmqty");
+  if (q) q.oninput = () => { RM.qty = q.value; $("rmwhat").innerHTML = rmWhat(); };
+}
+async function doRemove(){
+  const p = $("rmpass");
+  if (p) {
+    if (!p.value.trim()) { RM.err = "Type the scanner passcode first."; renderRemove(); return; }
+    setPass(p.value.trim());
+  }
+  const r = RM.r;
+  Object.assign(RM, {busy:true, err:""}); renderRemove();
+  try {
+    RM.done = await scanCall({action:"remove", item:{name:r.name, set:r.set, number:r.num, loc:r.loc}, qty:rmCount(), batch:RM.batch}, 45000);
+    loadAll(); // the list behind updates while this message shows
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") setPass("");
+    RM.err = e.message === "Unknown request." ? "Removing needs the newest Scan.gs: paste it into Apps Script and deploy a new version." : e.message;
+  }
+  RM.busy = false; renderRemove();
 }
 
 /* ---------- parsing ---------- */
@@ -718,7 +774,7 @@ function renderScan(){
   } else if (SC.step === "working" || SC.step === "adding") {
     body = `${SC.photo ? `<img class="sphoto" src="${SC.photo}" alt="Your photo">` : ""}
       <p class="sbusy"><span class="spin" aria-hidden="true"></span> ${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p>
-      <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–40 seconds." : ""}</p>`;
+      <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–60 seconds." : ""}</p>`;
   } else if (SC.step === "review") {
     const keep = SC.cards.filter(c => !c.skip);
     const missing = keep.filter(c => !isFinite(parseFloat(c.price)) || String(c.price ?? "").trim() === "");

@@ -12,6 +12,7 @@
 //      Cheap commons/uncommons can instead be added to their set's bulk count row.
 // Bulk counts (no photo, no AI): "add 40 Journey Together non-foil" adds to that set's count row,
 // or starts one, e.g. "Journey Together non-foil bulk (count)" in Bulk Row 2 – Journey Together.
+// Remove (Remove button on a card's details): takes some or all of a row out of the sheet.
 //
 // Settings live in Project Settings → Script Properties (never in the app or on GitHub):
 //   ANTHROPIC_API_KEY  your Claude API key (sk-ant-…)
@@ -25,7 +26,7 @@ const SCAN_TZ = 'America/Chicago';
 const SCAN_BINDER_SLOTS = 360;
 
 /* ---------- web entry ---------- */
-// The app POSTs JSON as plain text: {action:"check"|"identify"|"add", pass, ...}
+// The app POSTs JSON as plain text: {action:"check"|"identify"|"add"|"bulk"|"remove", pass, ...}
 function doPost(e) {
   let out;
   try {
@@ -35,6 +36,7 @@ function doPost(e) {
     else if (req.action === 'identify') out = scanIdentify_(req.image, req.mediaType);
     else if (req.action === 'add') out = scanAdd_(req.cards, req.batch);
     else if (req.action === 'bulk') out = scanBulkOnly_(req.entries, req.batch);
+    else if (req.action === 'remove') out = scanRemove_(req.item, req.qty, req.batch);
     else throw new Error('Unknown request.');
   } catch (err) {
     out = {error: String((err && err.message) || err), code: (err && err.code) || ''};
@@ -560,12 +562,11 @@ function scanAdd_(cards, batch) {
     const ss = SpreadsheetApp.openById(scanSheetId_());
     const col = ss.getSheetByName('Collection');
     if (!col) throw new Error('The sheet has no Collection tab.');
-    const next = scanNextSpots_(ss);
+    const used = scanUsedSpots_(col);
     const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
 
     // Work out every row first, so nothing is written if the binder is full.
     const rows = [], grading = [], added = [], bulk = [];
-    let slot = next.binder, buffer = next.buffer;
     for (const c of clean) {
       if (c.bulk) { bulk.push({set: c.set, kind: c.bulkKind, qty: c.qty, mode: 'add', fromScan: true}); continue; }
       const base = [c.name, c.set, c.number, c.rarity, c.category, c.condition];
@@ -576,7 +577,9 @@ function scanAdd_(cards, batch) {
       if (c.category === 'Sealed') { push(c.qty, 'Sealed Shelf', 'Sealed', 'Sealed shelf'); continue; }
       if (c.price >= 20) {
         for (let i = 0; i < c.qty; i++) {
-          const loc = 'Buffer #' + buffer++;
+          const n = scanFree_(used.buffer);
+          used.buffer[n] = true;
+          const loc = 'Buffer #' + n;
           push(1, loc, 'Penny sleeve + top loader', 'Penny sleeve + 35pt top loader → bulk box Row 1 front, ' + loc);
           grading.push([c.name, c.set, c.number, c.price]);
         }
@@ -584,9 +587,10 @@ function scanAdd_(cards, batch) {
       }
       if (c.price >= 2) {
         for (let i = 0; i < c.qty; i++) {
-          if (slot > SCAN_BINDER_SLOTS) throw new Error('The binder is full (360 slots). Nothing was added. Decide where overflow cards go, then try again.');
-          const loc = 'Binder P' + Math.ceil(slot / 9) + ' S' + (((slot - 1) % 9) + 1);
-          slot++;
+          const n = scanFree_(used.binder);
+          if (n > SCAN_BINDER_SLOTS) throw new Error('The binder is full (360 slots). Nothing was added. Decide where overflow cards go, then try again.');
+          used.binder[n] = true;
+          const loc = scanBinderLoc_(n);
           push(1, loc, 'Penny sleeve + binder pocket', 'Penny sleeve → ' + loc);
         }
         continue;
@@ -605,11 +609,10 @@ function scanAdd_(cards, batch) {
       if (g) scanWriteRows_(g, scanFirstEmptyRow_(g), grading, {numCol: 3});
     }
     SpreadsheetApp.flush();
-    const after = scanNextSpots_(ss);
     const out = {
       added: added,
       grading: grading.length,
-      next: {binder: after.binderText, buffer: after.bufferText}
+      next: scanNextText_(used)
     };
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
     return out;
@@ -724,20 +727,86 @@ function scanBulkOnly_(entries, batch) {
   }
 }
 
-// The Storage tab's "Next binder slot" and "Next top loader buffer #" cells, found by their labels.
-function scanNextSpots_(ss) {
-  const st = ss.getSheetByName('Storage');
-  if (!st) throw new Error('The sheet has no Storage tab.');
-  const v = st.getRange(1, 1, Math.min(st.getLastRow(), 40), 2).getDisplayValues();
-  let binderText = '', bufferText = '';
-  for (const r of v) {
-    if (/next binder/i.test(r[0])) binderText = r[1];
-    else if (/next .*buffer/i.test(r[0])) bufferText = r[1];
+/* ---------- remove ---------- */
+// Removes some or all of one Collection row, found by name, set, card # and location as the app shows them.
+// Removing all of it deletes the row by moving the rows below it up (the formula columns stay put).
+// A top loader card also loses its Grading row. Its binder slot or buffer number is reused by the next card added.
+function scanRemove_(item, qty, batch) {
+  item = item || {};
+  const want = [item.name, item.set, item.number, item.loc].map(v => String(v == null ? '' : v).trim());
+  if (!want[0]) throw new Error('Nothing to remove.');
+  const cache = CacheService.getScriptCache();
+  if (batch) { const done = cache.get('scan-batch-' + batch); if (done) return JSON.parse(done); }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(scanSheetId_());
+    const col = ss.getSheetByName('Collection');
+    if (!col) throw new Error('The sheet has no Collection tab.');
+    const last = scanFirstEmptyRow_(col) - 1;
+    const vals = last >= 2 ? col.getRange(2, 1, last - 1, 10).getDisplayValues() : [];
+    const i = vals.findIndex(r => [r[0], r[1], r[2], r[9]].every((v, k) => String(v).trim() === want[k]));
+    if (i < 0) throw new Error(want[0] + ' isn\'t in the sheet any more. Refresh the app and try again.');
+    const row = i + 2;
+    const have = Math.max(1, Number(String(vals[i][6]).replace(/[^0-9.]/g, '')) || 1);
+    const n = Math.max(1, Math.min(have, Math.round(Number(qty) || 1)));
+    let grading = false;
+    if (n < have) {
+      col.getRange(row, 7).setValue(have - n);
+    } else {
+      scanShiftUp_(col, row, last, [[1, 11]]);
+      // Its Grading row goes too, unless another copy of the card is still in a top loader.
+      if (/^Buffer/i.test(want[3]) && !vals.some((r, k) => k !== i && /^Buffer/i.test(r[9]) && [r[0], r[1], r[2]].every((v, j) => String(v).trim() === want[j]))) {
+        const g = ss.getSheetByName('Grading');
+        const gLast = g ? scanFirstEmptyRow_(g) - 1 : 1;
+        const gVals = gLast >= 2 ? g.getRange(2, 1, gLast - 1, 3).getDisplayValues() : [];
+        const gi = gVals.findIndex(r => r.every((v, j) => String(v).trim() === want[j]));
+        // Inputs only (A–G name, prices; K–L checks; N–O pipeline step, grade); the other columns are formulas.
+        if (gi >= 0) { scanShiftUp_(g, gi + 2, gLast, [[1, 7], [11, 2], [14, 2]]); grading = true; }
+      }
+    }
+    SpreadsheetApp.flush();
+    const out = {name: want[0], removed: n, left: have - n, loc: want[3], grading: grading, next: scanNextText_(scanUsedSpots_(col))};
+    if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
+    return out;
+  } finally {
+    lock.releaseLock();
   }
-  const m = String(binderText).match(/P\s*(\d+)\s*S\s*(\d+)/i);
-  const b = String(bufferText).match(/(\d+)/);
-  if (!m || !b) throw new Error('Couldn\'t read the next open binder slot and buffer number on the Storage tab.');
-  return {binder: (+m[1] - 1) * 9 + +m[2], buffer: +b[1], binderText: binderText, bufferText: bufferText};
+}
+
+// Deletes row `row` within the given column blocks ([first column, how many]) by moving rows row+1..last up one
+// and clearing row `last`. Number formats move with the values, so card numbers stay text and dates stay dates.
+function scanShiftUp_(sh, row, last, blocks) {
+  for (const [c, w] of blocks) {
+    if (last > row) {
+      const src = sh.getRange(row + 1, c, last - row, w);
+      const dst = sh.getRange(row, c, last - row, w);
+      dst.setNumberFormats(src.getNumberFormats());
+      dst.setValues(src.getValues());
+    }
+    sh.getRange(last, c, 1, w).clearContent();
+  }
+}
+
+// Binder slots (1–360) and buffer numbers in use, read from the Location column. A removed card leaves a gap,
+// and the lowest open number is used first, so nothing is ever filed into a slot that's taken.
+function scanUsedSpots_(col) {
+  const last = scanFirstEmptyRow_(col) - 1;
+  const locs = last >= 2 ? col.getRange(2, 10, last - 1, 1).getDisplayValues() : [];
+  const used = {binder: {}, buffer: {}};
+  for (const [loc] of locs) {
+    const b = String(loc).match(/^Binder P\s*(\d+)\s*S\s*(\d+)/i);
+    if (b) used.binder[(+b[1] - 1) * 9 + +b[2]] = true;
+    const t = String(loc).match(/^Buffer #\s*(\d+)/i);
+    if (t) used.buffer[+t[1]] = true;
+  }
+  return used;
+}
+const scanFree_ = taken => { let n = 1; while (taken[n]) n++; return n; };
+const scanBinderLoc_ = n => 'Binder P' + Math.ceil(n / 9) + ' S' + (((n - 1) % 9) + 1);
+function scanNextText_(used) {
+  const n = scanFree_(used.binder);
+  return {binder: n > SCAN_BINDER_SLOTS ? 'Binder full' : scanBinderLoc_(n), buffer: 'Buffer #' + scanFree_(used.buffer)};
 }
 
 // First row after the last filled cell in column A (the formula columns are pre-filled further down).
