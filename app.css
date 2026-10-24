@@ -260,31 +260,9 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .field i{font-style:normal}
 .bmode{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .bmode legend{padding:0;margin-bottom:4px}
-/* loading creatures (drawings in app.js) */
-.loadfx{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:8px;padding:2px 22px 2px 14px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 24px rgba(22,32,43,.18);white-space:nowrap}
+/* loading creatures (art in fx/, made from Jeff's Gemini video) */
+.loadfx{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:6px;padding:4px 24px 4px 8px;background:linear-gradient(120deg,#1B1533,#2A1E3F 55%,#3B2418);border:1px solid rgba(255,190,110,.3);border-radius:999px;box-shadow:0 8px 28px rgba(27,21,51,.45),0 0 18px rgba(242,138,30,.25);white-space:nowrap}
 .loadfx[hidden]{display:none}
-.phx{width:72px;height:72px;overflow:visible}
-.phx *{transform-box:view-box}
-.phx-flip{transform-origin:50px 50px;animation:phx-seq 3.6s cubic-bezier(.45,0,.3,1) infinite}
-.phx-wing{transform-origin:59px 44px;animation:phx-flap .5s ease-in-out infinite}
-.phx-wing.back{animation-delay:-.07s}
-.phx-rib{transform-origin:36px 68px;animation:phx-wave .7s ease-in-out infinite alternate}
-.phx-rib.r2{animation-delay:-.35s}
-.phx-crest{transform-origin:76px 24px;animation:phx-wave .4s ease-in-out infinite alternate}
-.phx-core{animation:phx-glow .32s steps(2) infinite alternate}
-.phx-aura{transform-origin:50px 50px;animation:phx-aura .9s ease-in-out infinite alternate}
-.phx-flick{animation:phx-glow .22s steps(2) infinite alternate}
-.phx-ember circle{animation:phx-ember 1.4s ease-out infinite}
-.phx-ember circle:nth-child(2){animation-delay:-.5s}
-.phx-ember circle:nth-child(3){animation-delay:-1s}
-.phx-ember circle:nth-child(4){animation-delay:-.25s}
-.phx-ember circle:nth-child(5){animation-delay:-.75s}
-@keyframes phx-seq{0%{transform:translate(0,0) rotate(0)}8%{transform:translate(0,-9px) rotate(-180deg)}16%{transform:translate(0,0) rotate(-360deg)}20%{transform:translate(-3px,1px) rotate(-352deg)}24%{transform:translate(4px,0) rotate(-366deg)}32%,100%{transform:translate(0,0) rotate(-360deg)}}
-@keyframes phx-flap{0%,100%{transform:rotate(4deg)}50%{transform:rotate(-44deg) scaleY(.82)}}
-@keyframes phx-wave{to{transform:skewY(-7deg) rotate(4deg)}}
-@keyframes phx-glow{to{opacity:.45}}
-@keyframes phx-aura{to{opacity:.85;transform:scale(1.06)}}
-@keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-8px,-34px);opacity:0}}
 .fx-word{position:relative;display:inline-flex;font-family:var(--f-display);font-weight:800;font-size:18px;letter-spacing:.02em}
 .fx-word span{display:inline-block;background:linear-gradient(180deg,#FFD45C 10%,#F28A1E 55%,#D6402B 95%);-webkit-background-clip:text;background-clip:text;color:transparent;animation:fx-letter 3.6s linear infinite backwards;animation-delay:calc(var(--i) * .08s)}
 .fx-ball{position:absolute;left:0;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:radial-gradient(circle,#FFF6D6 0 25%,#FFC83D 45%,#F28A1E 68%,rgba(214,64,43,0) 72%);box-shadow:0 0 10px 3px rgba(255,170,40,.55),-8px 0 7px -1px rgba(242,138,30,.6);opacity:0;animation:fx-ball 3.6s linear infinite}
@@ -299,36 +277,17 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 @keyframes fx-ball{0%,21%{left:-10px;opacity:0;transform:scale(.4)}24%{left:-4px;opacity:1;transform:scale(1)}46%{left:100%;opacity:1;transform:scale(1)}50%,100%{left:100%;opacity:0;transform:scale(1.8)}}
 @keyframes fx-ash{0%,68%{opacity:0;transform:translate(0,0)}74%{opacity:.9}96%,100%{opacity:0;transform:translate(-6px,-18px)}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.rju{width:220px;height:132px;overflow:visible}
-.rju *{transform-box:view-box}
-.rju-bob{transform-origin:80px 50px;animation:rju-bob .42s ease-in-out infinite}
-.rju .rju-leg{transform-box:fill-box;transform-origin:50% 6%;animation:rju-run .42s ease-in-out infinite alternate}
-.rju-leg.front.near,.rju-leg.back.far{animation-direction:alternate-reverse}
-.rju-tail{transform-origin:40px 48px;animation:rju-tail .42s ease-in-out infinite}
-.rju-flick,.rju-mane path{animation:rju-flick .24s steps(1) infinite}
-.rju-mane path:nth-child(2){animation-delay:-.12s}
-.rju-mane path:nth-child(3){animation-delay:-.06s}
-.rju-mane path:nth-child(4){animation-delay:-.18s}
-.rju-aura{transform-origin:90px 48px;animation:rju-aura .42s ease-in-out infinite alternate}
-.rju-vein{animation:rju-flick .3s steps(1) infinite}
-.rju-whisk{animation:rju-flick .18s steps(1) infinite}
-.rju-paw{opacity:0;animation:rju-paw .84s steps(1) infinite}
-.rju-wind path{animation:rju-wind .5s linear infinite}
-.rju-wind path:nth-child(2){animation-delay:-.17s}
-.rju-wind path:nth-child(3){animation-delay:-.33s}
-.rju-spark path{opacity:0;animation:rju-spark .9s steps(1) infinite}
-.rju-spark path:nth-child(2){animation-delay:-.22s}
-.rju-spark path:nth-child(3){animation-delay:-.45s}
-.rju-spark path:nth-child(4){animation-delay:-.67s}
-.rju-spark path:nth-child(5){animation-delay:-.11s}
-@keyframes rju-bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(-1.5deg)}}
-@keyframes rju-run{from{transform:rotate(30deg)}to{transform:rotate(-34deg)}}
-@keyframes rju-tail{50%{transform:rotate(-7deg)}}
-@keyframes rju-flick{0%{opacity:1}50%{opacity:.25}}
-@keyframes rju-aura{to{opacity:.75;transform:scale(1.04)}}
-@keyframes rju-paw{0%,20%{opacity:1}21%,100%{opacity:0}}
-@keyframes rju-wind{from{transform:translateX(12px);opacity:0}30%{opacity:1}to{transform:translateX(-14px);opacity:0}}
-@keyframes rju-spark{0%,40%{opacity:1}41%,100%{opacity:0}}
+.phx{position:relative;flex:none;width:100px;height:123px;margin:-52px -6px -14px -6px;animation:phx-seq 3.6s cubic-bezier(.45,0,.3,1) infinite}
+.phx-sprite{position:absolute;inset:0;background:url(fx/phoenix-fly.webp) 0 0/2200% 100% no-repeat;animation:phx-flap .92s steps(22,jump-none) infinite}
+.phx-glow{position:absolute;left:12%;top:22%;width:76%;height:60%;border-radius:50%;background:radial-gradient(closest-side,rgba(255,170,60,.65),rgba(242,90,30,.25) 60%,transparent);animation:phx-glow .9s ease-in-out infinite alternate}
+.phx-ember{position:absolute;left:44%;top:70%;width:4px;height:4px;border-radius:50%;background:#FFC83D;box-shadow:0 0 6px 2px rgba(255,150,40,.7);opacity:0;animation:phx-ember 1.4s ease-out infinite}
+.phx-ember:nth-of-type(4){left:36%;animation-delay:-.45s;background:#FFF3C4}
+.phx-ember:nth-of-type(5){left:52%;animation-delay:-.9s}
+@keyframes phx-seq{0%{transform:translate(0,0) rotate(0)}8%{transform:translate(0,-10px) rotate(-180deg)}16%{transform:translate(0,0) rotate(-360deg)}20%{transform:translate(-3px,1px) rotate(-352deg)}24%{transform:translate(5px,0) rotate(-368deg)}32%,100%{transform:translate(0,0) rotate(-360deg)}}
+@keyframes phx-flap{to{background-position:100% 0}}
+@keyframes phx-glow{to{opacity:.55;transform:scale(1.12)}}
+@keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-10px,-46px);opacity:0}}
+.rju{display:block;width:100%;max-width:340px;aspect-ratio:5/4;object-fit:cover;border-radius:16px;background:#0B1022;box-shadow:0 0 0 1px rgba(95,212,255,.35),0 10px 30px rgba(47,111,228,.35)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 /* remove */
 .btn.rmbtn{color:var(--bad);border-color:var(--bad);background:transparent}
