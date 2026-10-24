@@ -216,34 +216,51 @@ function openDetail(i){
     </div>`;
   $("dclose").onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
-  Object.assign(RM, {r, open:false, qty:1, busy:false, err:"", done:null, batch:""});
+  Object.assign(RM, {r, open:false, qty:1, reason:"", price:"", note:"", busy:false, err:"", done:null, batch:""});
   renderRemove();
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
   hydrate(d);
 }
 
 /* ---------- remove ---------- */
-// Takes some or all of a row out of the sheet (Scan.gs, action "remove"), behind the same passcode as scanning.
-const RM = {r:null, open:false, qty:1, busy:false, err:"", done:null, batch:""};
+// Takes some or all of a row out of the sheet (Scan.gs, action "remove"), behind the same passcode as scanning,
+// and logs why on the sheet's "Sold & Opened" tab. Reasons must match SCAN_REASONS in Scan.gs.
+const RM = {r:null, open:false, qty:1, reason:"", price:"", note:"", pw:"", busy:false, err:"", done:null, batch:""};
+const RM_REASONS = [
+  {k:"opened", label:"Opened", sealed:true, note:"What was in it? (optional)"},
+  {k:"sold", label:"Sold", note:"Who bought it, where (optional)"},
+  {k:"traded", label:"Traded", note:"Traded for… (optional)"},
+  {k:"gave", label:"Gave away", note:"Gave it to… (optional)"},
+  {k:"mistake", label:"Added by mistake"}
+];
+const rmSealed = r => r.tier === "sealed" || /^sealed$/i.test(r.cat);
 const rmCount = () => Math.max(1, Math.min(RM.r.qty, Math.round(+RM.qty) || 1));
 function rmWhat(){
   const r = RM.r, n = rmCount();
-  if (n < r.qty) return `Qty goes from ${int(r.qty)} to ${int(r.qty - n)}.`;
-  return `Deletes this row from “${esc(CFG.sheetName)}”.` + (/^Binder/i.test(r.loc) ? ` ${esc(r.loc)} opens up for the next binder card.`
+  const what = n < r.qty ? `Qty goes from ${int(r.qty)} to ${int(r.qty - n)}.`
+    : `Deletes this row from “${esc(CFG.sheetName)}”.` + (/^Binder/i.test(r.loc) ? ` ${esc(r.loc)} opens up for the next binder card.`
     : /^Buffer/i.test(r.loc) ? ` ${esc(r.loc)} opens up, and its Grading row is removed too.` : "");
+  return what + (!RM.reason ? "" : RM.reason === "mistake" ? " Not logged anywhere." : " Logged on the “Sold &amp; Opened” tab.");
 }
 function removeView(){
   const r = RM.r, d = RM.done;
-  if (d) return `<p class="rmdone">Removed ${int(d.removed)} × ${esc(d.name)}${d.left ? ` · ${int(d.left)} left` : ""}.</p>
-    ${!d.left && /^(Binder|Buffer)/i.test(d.loc) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${/^Buffer/i.test(d.loc) ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}`;
+  if (d) return `<p class="rmdone">${esc(d.reason || "Removed")} ${int(d.removed)} × ${esc(d.name)}${d.sold !== "" && d.sold != null ? ` for ${usd(+d.sold)} each` : ""}${d.left ? ` · ${int(d.left)} left` : ""}.</p>
+    ${!d.left && /^(Binder|Buffer)/i.test(d.loc) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${/^Buffer/i.test(d.loc) ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}
+    ${d.reason ? `<p class="note" style="margin:0">Logged on the “Sold &amp; Opened” tab.</p>` : ""}
+    ${d.reason === "Opened" ? `<button class="btn primary big" type="button" id="rmpulls">Scan what you pulled</button>` : ""}`;
   if (!RM.open) return `<button class="btn big rmbtn" type="button" id="rmopen">Remove from collection</button>`;
+  const why = RM_REASONS.find(x => x.k === RM.reason);
   return `<div class="rmbox">
     <h3>Remove ${esc(r.name)}?</h3>
-    ${r.qty > 1 ? `<label class="field"><span>How many to remove (you have ${int(r.qty)})</span><input id="rmqty" type="number" inputmode="numeric" min="1" max="${r.qty}" value="${esc(RM.qty)}"></label>` : ""}
+    <div class="rmwhy" role="radiogroup" aria-label="Why is it leaving?">${RM_REASONS.filter(x => !x.sealed || rmSealed(r)).map(x =>
+      `<button type="button" role="radio" class="chip" aria-checked="${x.k === RM.reason}" data-why="${x.k}">${x.label}</button>`).join("")}</div>
+    ${r.qty > 1 ? `<label class="field"><span>How many (you have ${int(r.qty)})</span><input id="rmqty" type="number" inputmode="numeric" min="1" max="${r.qty}" value="${esc(RM.qty)}"></label>` : ""}
+    ${RM.reason === "sold" ? `<label class="field"><span>Sold for, each ($)</span><input id="rmprice" inputmode="decimal" placeholder="${esc(r.price.toFixed(2))}" value="${esc(RM.price)}"></label>` : ""}
+    ${why && why.note ? `<label class="field"><span>Note</span><input id="rmnote" maxlength="200" placeholder="${esc(why.note)}" value="${esc(RM.note)}"></label>` : ""}
     <p class="note" id="rmwhat" style="margin:0">${rmWhat()}</p>
-    ${getPass() ? "" : `<label class="field"><span>Scanner passcode</span><input id="rmpass" type="password" autocomplete="current-password"></label>`}
+    ${getPass() ? "" : `<label class="field"><span>Scanner passcode</span><input id="rmpass" type="password" autocomplete="current-password" value="${esc(RM.pw)}"></label>`}
     ${RM.err ? `<div class="secerr" role="alert">${esc(RM.err)}</div>` : ""}
-    <div class="rmbar"><button class="btn" type="button" id="rmcancel">Cancel</button><button class="btn rmgo" type="button" id="rmgo"${RM.busy ? " disabled" : ""}>${RM.busy ? '<span class="spin" aria-hidden="true"></span> Removing' : "Remove"}</button></div>
+    <div class="rmbar"><button class="btn" type="button" id="rmcancel">Cancel</button><button class="btn rmgo" type="button" id="rmgo"${RM.busy || !RM.reason ? " disabled" : ""}>${RM.busy ? '<span class="spin" aria-hidden="true"></span> Removing' : "Remove"}</button></div>
   </div>`;
 }
 function renderRemove(){
@@ -252,24 +269,30 @@ function renderRemove(){
   box.innerHTML = removeView();
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on("rmopen", () => { Object.assign(RM, {open:true, err:"", batch:Date.now().toString(36) + Math.random().toString(36).slice(2, 8)}); renderRemove(); $("drm").scrollIntoView({block:"end", behavior:"smooth"}); });
-  on("rmcancel", () => { Object.assign(RM, {open:false, err:"", qty:1}); renderRemove(); });
+  on("rmcancel", () => { Object.assign(RM, {open:false, err:"", qty:1, reason:"", price:"", note:""}); renderRemove(); });
   on("rmgo", doRemove);
-  const q = $("rmqty");
-  if (q) q.oninput = () => { RM.qty = q.value; $("rmwhat").innerHTML = rmWhat(); };
+  on("rmpulls", () => { $("detail").close(); openScan(); });
+  box.querySelectorAll("[data-why]").forEach(b => b.onclick = () => { RM.reason = b.dataset.why; RM.err = ""; renderRemove(); });
+  const keep = (id, k, after) => { const el = $(id); if (el) el.oninput = () => { RM[k] = el.value; if (after) after(); }; };
+  keep("rmqty", "qty", () => { $("rmwhat").innerHTML = rmWhat(); });
+  keep("rmprice", "price");
+  keep("rmnote", "note");
+  keep("rmpass", "pw");
 }
 async function doRemove(){
-  const p = $("rmpass");
-  if (p) {
-    if (!p.value.trim()) { RM.err = "Type the scanner passcode first."; renderRemove(); return; }
-    setPass(p.value.trim());
+  if (!RM.reason) return;
+  if ($("rmpass")) {
+    if (!RM.pw.trim()) { RM.err = "Type the scanner passcode first."; renderRemove(); return; }
+    setPass(RM.pw.trim());
   }
   const r = RM.r;
   Object.assign(RM, {busy:true, err:""}); renderRemove();
   try {
-    RM.done = await scanCall({action:"remove", item:{name:r.name, set:r.set, number:r.num, loc:r.loc}, qty:rmCount(), batch:RM.batch}, 45000);
+    RM.done = await scanCall({action:"remove", item:{name:r.name, set:r.set, number:r.num, loc:r.loc}, qty:rmCount(), batch:RM.batch,
+      why:{reason:RM.reason, price:RM.reason === "sold" ? RM.price : "", note:RM.reason === "mistake" ? "" : RM.note}}, 45000);
     loadAll(); // the list behind updates while this message shows
   } catch(e) {
-    if (e.code === "pass" || e.code === "locked") setPass("");
+    if (e.code === "pass" || e.code === "locked") { setPass(""); RM.pw = ""; }
     RM.err = e.message === "Unknown request." ? "Removing needs the newest Scan.gs: paste it into Apps Script and deploy a new version." : e.message;
   }
   RM.busy = false; renderRemove();

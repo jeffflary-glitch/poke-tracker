@@ -12,7 +12,8 @@
 //      Cheap commons/uncommons can instead be added to their set's bulk count row.
 // Bulk counts (no photo, no AI): "add 40 Journey Together non-foil" adds to that set's count row,
 // or starts one, e.g. "Journey Together non-foil bulk (count)" in Bulk Row 2 – Journey Together.
-// Remove (Remove button on a card's details): takes some or all of a row out of the sheet.
+// Remove (Remove button on a card's details): takes some or all of a row out of the sheet and logs why
+// (sold, traded, opened, gave away) on the "Sold & Opened" tab. "Added by mistake" isn't logged.
 //
 // Settings live in Project Settings → Script Properties (never in the app or on GitHub):
 //   ANTHROPIC_API_KEY  your Claude API key (sk-ant-…)
@@ -36,7 +37,7 @@ function doPost(e) {
     else if (req.action === 'identify') out = scanIdentify_(req.image, req.mediaType);
     else if (req.action === 'add') out = scanAdd_(req.cards, req.batch);
     else if (req.action === 'bulk') out = scanBulkOnly_(req.entries, req.batch);
-    else if (req.action === 'remove') out = scanRemove_(req.item, req.qty, req.batch);
+    else if (req.action === 'remove') out = scanRemove_(req.item, req.qty, req.batch, req.why);
     else throw new Error('Unknown request.');
   } catch (err) {
     out = {error: String((err && err.message) || err), code: (err && err.code) || ''};
@@ -731,10 +732,17 @@ function scanBulkOnly_(entries, batch) {
 // Removes some or all of one Collection row, found by name, set, card # and location as the app shows them.
 // Removing all of it deletes the row by moving the rows below it up (the formula columns stay put).
 // A top loader card also loses its Grading row. Its binder slot or buffer number is reused by the next card added.
-function scanRemove_(item, qty, batch) {
-  item = item || {};
+// why: {reason: one of SCAN_REASONS, price: sold for, each (optional), note (optional)}.
+const SCAN_REASONS = {sold: 'Sold', traded: 'Traded', opened: 'Opened', gave: 'Gave away', mistake: ''};
+function scanRemove_(item, qty, batch, why) {
+  item = item || {}; why = why || {};
   const want = [item.name, item.set, item.number, item.loc].map(v => String(v == null ? '' : v).trim());
   if (!want[0]) throw new Error('Nothing to remove.');
+  if (!Object.prototype.hasOwnProperty.call(SCAN_REASONS, why.reason)) throw new Error('Pick why it\'s leaving the collection.');
+  const reason = SCAN_REASONS[why.reason];
+  const soldText = String(why.price == null ? '' : why.price).replace(/[^0-9.]/g, '');
+  const sold = why.reason === 'sold' && soldText !== '' && isFinite(Number(soldText)) ? Math.round(Number(soldText) * 100) / 100 : '';
+  const note = String(why.note || '').trim().slice(0, 200);
   const cache = CacheService.getScriptCache();
   if (batch) { const done = cache.get('scan-batch-' + batch); if (done) return JSON.parse(done); }
   const lock = LockService.getScriptLock();
@@ -743,6 +751,8 @@ function scanRemove_(item, qty, batch) {
     const ss = SpreadsheetApp.openById(scanSheetId_());
     const col = ss.getSheetByName('Collection');
     if (!col) throw new Error('The sheet has no Collection tab.');
+    const log = reason ? ss.getSheetByName('Sold & Opened') : null;
+    if (reason && !log) throw new Error('The sheet has no "Sold & Opened" tab, so nothing was removed.');
     const last = scanFirstEmptyRow_(col) - 1;
     const vals = last >= 2 ? col.getRange(2, 1, last - 1, 10).getDisplayValues() : [];
     const i = vals.findIndex(r => [r[0], r[1], r[2], r[9]].every((v, k) => String(v).trim() === want[k]));
@@ -765,8 +775,13 @@ function scanRemove_(item, qty, batch) {
         if (gi >= 0) { scanShiftUp_(g, gi + 2, gLast, [[1, 7], [11, 2], [14, 2]]); grading = true; }
       }
     }
+    if (log) {
+      const value = Number(String(vals[i][7]).replace(/[^0-9.]/g, '')) || 0;
+      const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
+      scanWriteRows_(log, scanFirstEmptyRow_(log), [[date, want[0], want[1], want[2], vals[i][4], n, reason, value, sold, want[3], note]], {numCol: 4, dateCol: 1});
+    }
     SpreadsheetApp.flush();
-    const out = {name: want[0], removed: n, left: have - n, loc: want[3], grading: grading, next: scanNextText_(scanUsedSpots_(col))};
+    const out = {name: want[0], removed: n, left: have - n, loc: want[3], grading: grading, reason: reason, sold: sold, next: scanNextText_(scanUsedSpots_(col))};
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
     return out;
   } finally {

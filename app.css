@@ -268,6 +268,9 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .rmbox{border:1px solid var(--bad);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
 .rmbox h3{font-size:16px;margin:0}
 .rmbar{display:flex;gap:10px}
+.rmwhy{display:flex;flex-wrap:wrap;gap:6px}
+.rmwhy .chip{padding:8px 13px;font-size:14px;color:var(--ink)}
+.rmwhy .chip[aria-checked="true"]{border-color:var(--ink);background:var(--ink);color:var(--surface)}
 .rmbar .btn{flex:1;justify-content:center;padding:11px 14px;font-size:15px;border-radius:12px}
 .btn.rmgo{background:var(--bad);border-color:var(--bad);color:#fff}
 .rmdone{margin:0;font-weight:600;color:var(--good)}
