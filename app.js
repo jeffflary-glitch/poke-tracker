@@ -333,10 +333,13 @@ function parse(key, rows){
 /* ---------- loading creatures ---------- */
 // From Jeff's own Gemini video (files in fx/). While the sheet refreshes, the phoenix (a 22-frame wingbeat sprite)
 // flips, casts a fireball that writes "Refreshing" in fire, the word burns to ash, and it casts again (one 3.6s loop,
-// timed in app.css). While a scan runs, the lightning wolf clip plays: it charges, unleashes a burst, and draws it back in.
+// timed in app.css). While a scan runs, the lightning wolf gallops in place, then bursts with lightning while cards are added.
 const FX = new URL("fx/", document.currentScript.src).href;
 const PHOENIX = `<div class="phx" aria-hidden="true"><i class="phx-glow"></i><i class="phx-sprite"></i><i class="phx-ember"></i><i class="phx-ember"></i><i class="phx-ember"></i></div>`;
 const stillMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Reading the photo: the wolf gallops in place (16-frame stride from Jeff's second video) over rushing ground streaks.
+// Adding to the sheet: the charge-and-burst clip.
+const wolfRun = () => `<div class="rju-stage" aria-hidden="true"><i class="rju-shadow"></i><i class="rju-streak"></i><i class="rju-streak"></i><img class="rju-run" src="${FX}${stillMotion() ? "wolf-run-still.webp" : "wolf-run.webp"}" alt=""></div>`;
 const wolfClip = () => `<video class="rju" src="${FX}wolf-charge.mp4" poster="${FX}wolf-charge.jpg" muted loop playsinline${stillMotion() ? "" : " autoplay"} aria-hidden="true"></video>`;
 
 /* ---------- loading ---------- */
@@ -807,7 +810,7 @@ function renderScan(){
       <p class="note" style="margin:0">Saves to “${esc(CFG.sheetName)}”. <button class="linkbtn" type="button" id="sforget">Forget passcode on this phone</button></p>`;
   } else if (SC.step === "working" || SC.step === "adding") {
     body = `${SC.photo ? `<img class="sphoto sm" src="${SC.photo}" alt="Your photo">` : ""}
-      <div class="sbusy">${wolfClip()}<p>${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p></div>
+      <div class="sbusy">${SC.step === "working" ? wolfRun() : wolfClip()}<p>${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p></div>
       <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–60 seconds." : ""}</p>`;
   } else if (SC.step === "review") {
     const keep = SC.cards.filter(c => !c.skip);

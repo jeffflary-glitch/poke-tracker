@@ -288,6 +288,12 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 @keyframes phx-glow{to{opacity:.55;transform:scale(1.12)}}
 @keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-10px,-46px);opacity:0}}
 .rju{display:block;width:100%;max-width:340px;aspect-ratio:5/4;object-fit:cover;border-radius:16px;background:#0B1022;box-shadow:0 0 0 1px rgba(95,212,255,.35),0 10px 30px rgba(47,111,228,.35)}
+.rju-stage{position:relative;width:100%;max-width:340px;aspect-ratio:16/10;border-radius:16px;overflow:hidden;background:radial-gradient(ellipse at 50% 88%,#2A3F7A 0%,#16224A 48%,#0B1022 100%);box-shadow:0 0 0 1px rgba(95,212,255,.35),0 10px 30px rgba(47,111,228,.35)}
+.rju-run{position:absolute;left:5%;width:90%;bottom:13%;filter:drop-shadow(0 0 6px rgba(95,212,255,.55))}
+.rju-shadow{position:absolute;left:18%;width:64%;bottom:9%;height:9%;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.55),transparent)}
+.rju-streak{position:absolute;left:-30%;width:160%;bottom:12%;height:2px;-webkit-mask-image:linear-gradient(90deg,transparent 15%,#000 35%,#000 65%,transparent 85%);mask-image:linear-gradient(90deg,transparent 15%,#000 35%,#000 65%,transparent 85%);background:repeating-linear-gradient(90deg,rgba(95,212,255,.75) 0 22px,transparent 22px 70px);animation:rju-ground .35s linear infinite}
+.rju-streak+.rju-streak{bottom:6%;opacity:.6;background:repeating-linear-gradient(90deg,rgba(255,200,61,.8) 0 12px,transparent 12px 35px);animation-duration:.25s}
+@keyframes rju-ground{to{transform:translateX(70px)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 /* remove */
 .btn.rmbtn{color:var(--bad);border-color:var(--bad);background:transparent}
