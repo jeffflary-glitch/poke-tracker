@@ -330,6 +330,59 @@ function parse(key, rows){
   return body;
 }
 
+/* ---------- loading creatures ---------- */
+// Original drawings (not any game's characters). A phoenix flaps while the sheet refreshes; a raiju, the
+// lightning beast of Japanese folklore, gallops while a scan runs. Moves come from app.css; Reduce Motion stills them.
+const PHOENIX = `<svg class="phx" viewBox="0 0 120 96" aria-hidden="true">
+  <defs>
+    <linearGradient id="phxBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC83D"/><stop offset=".55" stop-color="#F28A1E"/><stop offset="1" stop-color="#D6402B"/></linearGradient>
+    <linearGradient id="phxFlame" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#F28A1E"/><stop offset=".55" stop-color="#D6402B"/><stop offset="1" stop-color="#D6402B" stop-opacity="0"/></linearGradient>
+    <linearGradient id="phxWing" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F28A1E"/><stop offset="1" stop-color="#FFC83D"/></linearGradient>
+  </defs>
+  <g class="phx-ember"><circle cx="34" cy="74" r="1.8" fill="#FFC83D"/><circle cx="22" cy="68" r="1.4" fill="#F28A1E"/><circle cx="42" cy="80" r="1.2" fill="#FFF3C4"/></g>
+  <g class="phx-bob">
+    <g class="phx-tail">
+      <path d="M50 54 C42 48 30 42 16 44 C27 39 38 41 47 48Z" fill="url(#phxFlame)" opacity=".75"/>
+      <path d="M50 58 C38 60 24 70 6 66 C19 62 26 56 34 54 C40 52 46 53 50 54Z" fill="url(#phxFlame)"/>
+      <path d="M51 62 C42 70 30 84 12 86 C23 78 30 70 38 64Z" fill="url(#phxFlame)" opacity=".85"/>
+      <path d="M50 57 C41 58 31 63 19 62 C28 59 34 56 40 55 C44 54 48 55 50 56Z" fill="#FFC83D" opacity=".9"/>
+    </g>
+    <path class="phx-wing back" d="M62 50 C57 35 49 23 36 14 C41 24 41 30 39 34 C35 28 29 24 23 24 C29 32 31 38 31 44 C38 44 48 46 62 54Z" fill="#D6402B"/>
+    <path d="M46 58 C46 46 58 40 70 42 C80 43 86 50 84 58 C82 68 70 74 60 72 C52 70 46 66 46 58Z" fill="url(#phxBody)"/>
+    <ellipse cx="66" cy="61" rx="10" ry="6" fill="#FFF3C4" opacity=".55"/>
+    <path d="M74 47 C77 40 80 34 86 30 L93 40 C89 46 84 50 78 52Z" fill="#F28A1E"/>
+    <path class="phx-crest" d="M82 32 C80 23 84 16 90 12 C88 18 90 22 92 24 C94 20 98 18 103 18 C99 22 97 28 93 32Z" fill="#FFC83D"/>
+    <circle cx="87" cy="38" r="9" fill="url(#phxBody)"/>
+    <path d="M95 36 L105 39.5 L95 43Z" fill="#B5521B"/>
+    <circle cx="90" cy="36" r="2.1" fill="#3A1A12"/><circle cx="90.7" cy="35.3" r=".7" fill="#FFF"/>
+    <path class="phx-wing front" d="M64 52 C60 36 52 24 40 16 C46 26 46 32 44 36 C40 30 34 27 28 28 C34 36 36 42 36 48 C42 48 52 50 64 58Z" fill="url(#phxWing)"/>
+  </g>
+</svg>`;
+const RAIJU = `<svg class="rju" viewBox="0 0 140 96" aria-hidden="true">
+  <defs>
+    <linearGradient id="rjuBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5FD4FF"/><stop offset="1" stop-color="#2F6FE4"/></linearGradient>
+  </defs>
+  <g class="rju-wind" stroke="#5FD4FF" stroke-width="2.5" stroke-linecap="round"><path d="M6 48 H26"/><path d="M14 60 H30"/><path d="M4 70 H18"/></g>
+  <g class="rju-bob">
+    <path class="rju-tail" d="M44 46 L30 34 L37 33 L22 18 L31 19 L16 4 L39 22 L31 23 L44 35 L38 36 Z" fill="#F2FBFF" stroke="#5FD4FF" stroke-width="2" stroke-linejoin="round"/>
+    <path class="rju-leg back far" d="M47 56 h7 l-1 24 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="#2F6FE4" opacity=".7"/>
+    <path class="rju-leg front far" d="M85 56 h7 l-1 24 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="#2F6FE4" opacity=".7"/>
+    <path d="M40 50 C40 40 60 36 80 38 C94 39 100 46 98 56 C96 64 84 66 70 66 C54 66 40 62 40 50Z" fill="url(#rjuBody)"/>
+    <path d="M56 62 C64 66 80 66 90 60 C84 58 66 58 56 62Z" fill="#F2FBFF" opacity=".8"/>
+    <path class="rju-leg back near" d="M50 56 h8 l-1 25 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="url(#rjuBody)"/>
+    <path class="rju-leg front near" d="M88 56 h8 l-1 25 a3 3 0 0 1 -3 3 h-2 a3 3 0 0 1 -3 -3 z" fill="url(#rjuBody)"/>
+    <path d="M100 30 L97 10 L109 26Z" fill="#2F6FE4"/>
+    <path d="M90 46 C92 36 98 28 106 28 C112 28 116 32 120 35 L131 40 C126 44 119 46 112 48 C104 50 96 52 90 50Z" fill="url(#rjuBody)"/>
+    <path d="M106 29 L108 8 L117 31Z" fill="#5FD4FF"/><path d="M108.5 26 L109.5 15 L114 28Z" fill="#F2FBFF"/>
+    <path d="M118 41 C121 43 126 43 130 41" stroke="#F2FBFF" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+    <circle cx="131" cy="40" r="2" fill="#1B2A55"/>
+    <path d="M107 36 C109 33 113 33 115 36 C113 38 109 38 107 36Z" fill="#1B2A55"/><circle cx="112.5" cy="35.2" r=".8" fill="#FFF"/>
+  </g>
+  <g class="rju-spark" fill="#F2FBFF" stroke="#5FD4FF" stroke-width="1" stroke-linejoin="round">
+    <path d="M86 18 l-5 8 h4 l-3 7 l8 -10 h-4 l3 -5z"/><path d="M62 24 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z"/><path d="M122 54 l-4 6 h3 l-2 5 l6 -7 h-3 l2 -4z"/>
+  </g>
+</svg>`;
+
 /* ---------- loading ---------- */
 /* Fetches every tab in one request to Code.gs (doGet with ?data=1). Keeps the last good copy if a refresh fails. */
 async function fetchData(){
@@ -359,9 +412,10 @@ function apply(d){
   }
   S.mode = S.data.collection ? "ready" : "error";
 }
-function loadAll(){
+// quiet: the 5-minute background refresh, which doesn't show the phoenix.
+function loadAll(quiet){
   if (S.busy) return;
-  S.busy = true; render();
+  S.busy = true; S.fx = !quiet; render();
   fetchData().then(d => {
     S.busy = false;
     apply(d);
@@ -380,7 +434,7 @@ function boot(){
   render();
   loadAll();
   // Refresh every 5 minutes while the app is on screen, and when you come back to it.
-  setInterval(() => { if (!document.hidden) loadAll(); }, 300000);
+  setInterval(() => { if (!document.hidden) loadAll(true); }, 300000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && S.at.collection && Date.now() - S.at.collection > 120000) loadAll();
   });
@@ -393,6 +447,7 @@ function render(){
   const rb = $("refresh");
   rb.disabled = S.busy;
   rb.innerHTML = S.busy ? '<span class="spin" aria-hidden="true"></span> Loading' : "Refresh";
+  $("loadfx").hidden = !(S.busy && S.fx);
 
   const main = $("main");
   if (!S.data.collection) {
@@ -796,7 +851,7 @@ function renderScan(){
       <p class="note" style="margin:0">Saves to “${esc(CFG.sheetName)}”. <button class="linkbtn" type="button" id="sforget">Forget passcode on this phone</button></p>`;
   } else if (SC.step === "working" || SC.step === "adding") {
     body = `${SC.photo ? `<img class="sphoto" src="${SC.photo}" alt="Your photo">` : ""}
-      <p class="sbusy"><span class="spin" aria-hidden="true"></span> ${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p>
+      <div class="sbusy">${RAIJU}<p>${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p></div>
       <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–60 seconds." : ""}</p>`;
   } else if (SC.step === "review") {
     const keep = SC.cards.filter(c => !c.skip);
@@ -1077,6 +1132,7 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.datase
 $("main").addEventListener("click", e => { const t = e.target.closest("[data-i]"); if (t && !e.target.closest("button")) openDetail(+t.dataset.i); });
 $("main").addEventListener("keydown", e => { const t = e.target.closest("[data-i]"); if (t && e.key === "Enter") openDetail(+t.dataset.i); });
 $("refresh").onclick = () => loadAll();
+document.body.insertAdjacentHTML("beforeend", `<div class="loadfx" id="loadfx" role="status" hidden>${PHOENIX}<span>Refreshing from Google Sheets…</span></div>`);
 setInterval(() => { if (!S.busy) $("stamp").textContent = ago(S.at.collection); }, 60000);
 initScan();
 boot();

@@ -226,7 +226,8 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .linkbtn{border:0;background:none;padding:0;color:var(--accent);font-size:inherit;text-decoration:underline}
 .sphoto{width:100%;max-height:44vh;object-fit:contain;border-radius:10px;background:var(--surface-2)}
 .sphoto.sm{max-height:150px}
-.sbusy{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;font-weight:500}
+.sbusy{display:flex;flex-direction:column;align-items:center;gap:4px;font-weight:500}
+.sbusy p{margin:0}
 .scards{display:flex;flex-direction:column;gap:10px}
 .scard{border:1px solid var(--line);border-left:4px solid var(--tc,var(--line));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
 .scard.skip{opacity:.55;border-left-color:var(--line)}
@@ -259,6 +260,41 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .field i{font-style:normal}
 .bmode{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .bmode legend{padding:0;margin-bottom:4px}
+/* loading creatures (drawings in app.js) */
+.loadfx{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:8px;padding:4px 16px 4px 6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 24px rgba(22,32,43,.18);font-size:14px;font-weight:500;white-space:nowrap}
+.loadfx[hidden]{display:none}
+.phx{width:74px;height:59px;overflow:visible}
+.phx *,.rju *{transform-box:view-box}
+.phx-bob{animation:phx-bob 1.2s ease-in-out infinite}
+.phx-wing{transform-origin:64px 52px;animation:phx-flap .6s ease-in-out infinite}
+.phx-wing.back{animation-delay:-.08s}
+.phx-tail{transform-origin:50px 58px;animation:phx-tail .45s ease-in-out infinite alternate}
+.phx-crest{transform-origin:88px 32px;animation:phx-tail .3s ease-in-out infinite alternate}
+.phx-ember circle{animation:phx-ember 1.4s ease-out infinite}
+.phx-ember circle:nth-child(2){animation-delay:-.5s}
+.phx-ember circle:nth-child(3){animation-delay:-1s}
+@keyframes phx-bob{50%{transform:translateY(-5px)}}
+@keyframes phx-flap{0%,100%{transform:rotate(6deg)}50%{transform:rotate(-58deg) scaleY(.85)}}
+@keyframes phx-tail{to{transform:skewY(-8deg) scaleX(1.08)}}
+@keyframes phx-ember{0%{transform:translate(0,0);opacity:0}20%{opacity:1}100%{transform:translate(-8px,-34px);opacity:0}}
+.rju{width:150px;height:103px;overflow:visible}
+.rju-bob{animation:rju-bob .4s ease-in-out infinite}
+.rju-leg{animation:rju-run .4s ease-in-out infinite alternate}
+.rju-leg.back{transform-origin:52px 57px}
+.rju-leg.front{transform-origin:90px 57px}
+.rju-leg.front.near,.rju-leg.back.far{animation-direction:alternate-reverse}
+.rju-tail{transform-origin:44px 44px;animation:rju-tail .2s steps(2) infinite}
+.rju-wind path{animation:rju-wind .5s linear infinite}
+.rju-wind path:nth-child(2){animation-delay:-.17s}
+.rju-wind path:nth-child(3){animation-delay:-.33s}
+.rju-spark path{opacity:0;animation:rju-spark .9s steps(1) infinite}
+.rju-spark path:nth-child(2){animation-delay:-.3s}
+.rju-spark path:nth-child(3){animation-delay:-.6s}
+@keyframes rju-bob{50%{transform:translateY(-3px)}}
+@keyframes rju-run{from{transform:rotate(32deg)}to{transform:rotate(-32deg)}}
+@keyframes rju-tail{50%{transform:rotate(-6deg) scale(1.04)}}
+@keyframes rju-wind{from{transform:translateX(12px);opacity:0}30%{opacity:1}to{transform:translateX(-14px);opacity:0}}
+@keyframes rju-spark{0%,55%{opacity:1}56%,100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 /* remove */
 .btn.rmbtn{color:var(--bad);border-color:var(--bad);background:transparent}
