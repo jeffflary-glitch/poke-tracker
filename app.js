@@ -20,7 +20,7 @@ const TIERS = [
   {k:"bulk", label:"Bulk box", sub:"Under $2 · 3,600-count"},
   {k:"sealed", label:"Sealed", sub:"Sealed shelf"}
 ];
-const S = {data:{}, err:{}, at:{}, tab:"overview", q:"", filter:"all", sort:"value", page:null, mode:"loading", busy:false};
+const S = {data:{}, err:{}, at:{}, tab:"overview", q:"", filter:"all", sort:"value", page:1, flip:"", mode:"loading", busy:false};
 
 try { const t = localStorage.getItem(TAB_KEY); if (t) S.tab = t; } catch(e) {}
 
@@ -626,8 +626,8 @@ function viewBinder(){
   const nm = nextLoc && String(nextLoc.loc).match(/P\s*(\d+)\s*S\s*(\d+)/i);
   const next = nm ? {p:+nm[1], s:+nm[2]} : null;
   const used = c.length, maxP = Math.max(1, ...c.map(r => r.page), next ? next.p : 1);
-  if (S.page == null) S.page = next ? next.p : 1;
-  const P = S.page;
+  const P = S.page, flip = S.flip;
+  S.flip = "";
   const onPage = {}; c.filter(r => r.page === P).forEach(r => onPage[r.slot] = r);
   let slots = "";
   for (let s = 1; s <= 9; s++) {
@@ -647,7 +647,7 @@ function viewBinder(){
       <div style="display:flex;gap:6px"><button class="btn" type="button" data-page="${Math.max(1,P-1)}" ${P <= 1 ? "disabled" : ""}>← Prev</button><button class="btn" type="button" data-page="${Math.min(40,P+1)}" ${P >= 40 ? "disabled" : ""}>Next →</button></div>
     </div>
     <p class="note" style="margin:6px 0 0">${Object.keys(onPage).length} of 9 pockets filled · ${usd(pageVal)} on this page · ${used} of 360 slots used${next ? ` · next card goes in <b>P${next.p} S${next.s}</b>` : ""}</p>
-    <div class="sheet" role="list" aria-label="Binder page ${P}">${slots}</div>
+    <div class="binder-wrap"><div class="sheet ${flip}" role="list" aria-label="Binder page ${P}">${slots}</div></div>
     <div class="pages" aria-label="Binder pages">${pages}</div>
     ${secErr("storage","Next open slot")}
   </section>`;
@@ -1071,7 +1071,7 @@ function wire(){
     if (b.dataset.sort) { S.sort = b.dataset.sort; S.filter = "all"; S.q = ""; }
     setTab(b.dataset.go);
   });
-  document.querySelectorAll("[data-page]").forEach(b => b.onclick = () => { S.page = +b.dataset.page; render(); });
+  document.querySelectorAll("[data-page]").forEach(b => b.onclick = () => { const p = +b.dataset.page; S.flip = p === S.page ? "" : p > S.page ? "flip-next" : "flip-prev"; S.page = p; render(); });
   if (S.tab === "collection") {
     const q = $("q");
     q.oninput = () => { S.q = q.value; updateList(); };
