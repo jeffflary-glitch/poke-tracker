@@ -764,7 +764,7 @@ function scanRemove_(item, qty, batch, why) {
     if (n < have) {
       col.getRange(row, 7).setValue(have - n);
     } else {
-      scanShiftUp_(col, row, last, [[1, 11]]);
+      scanShiftUp_(col, row, last, [[1, 11], [17, 1]]); // A–K and Q (Paid Each) inputs
       // Its Grading row goes too, unless another copy of the card is still in a top loader.
       if (/^Buffer/i.test(want[3]) && !vals.some((r, k) => k !== i && /^Buffer/i.test(r[9]) && [r[0], r[1], r[2]].every((v, j) => String(v).trim() === want[j]))) {
         const g = ss.getSheetByName('Grading');

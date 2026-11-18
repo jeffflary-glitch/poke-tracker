@@ -29,6 +29,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money = v => { const n = parseFloat(String(v ?? "").replace(/[^0-9.-]/g, "")); return isFinite(n) ? n : 0; };
 const usd = n => n.toLocaleString("en-US", {style:"currency", currency:"USD"});
+const gain = n => (n < 0 ? "−" : "+") + usd(Math.abs(n));
 const int = n => Math.round(n).toLocaleString("en-US");
 function tierOf(loc){
   const l = String(loc||"");
@@ -208,6 +209,11 @@ function openDetail(i){
         <div><div class="k">Qty</div><div class="v">${int(r.qty)}</div></div>
         <div><div class="k">Total</div><div class="v">${usd(r.total)}</div></div>
       </div>
+      ${r.paid != null ? `<div class="gtbl">
+        <div><div class="k">Paid each</div><div class="v">${usd(r.paid)}</div></div>
+        <div><div class="k">Paid total</div><div class="v">${usd(r.paid * r.qty)}</div></div>
+        <div><div class="k">Gain</div><div class="v">${gain(r.total - r.paid * r.qty)}</div></div>
+      </div>` : ""}
       ${priceUrl(r) ? `<a class="btn primary" href="${priceUrl(r)}" target="_blank" rel="noopener" style="justify-content:center;text-decoration:none;padding:9px 12px">Check price on TCGplayer ↗</a>` : ""}
       <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
       <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
@@ -307,7 +313,7 @@ function parse(key, rows){
     const m = String(r[9]||"").match(/P\s*(\d+)\s*S\s*(\d+)/i);
     return {i, name:r[0], set:r[1]||"", num:r[2]||"", rarity:r[3]||"", cat:r[4]||"", cond:r[5]||"",
       qty, price, total, date:r[8]||"", loc:r[9]||"", prot:r[10]||"", rec:r[12]||"", req:r[13]||"",
-      status:r[14]||"", check:r[15]||"", tier:tierOf(r[9]), page:m?+m[1]:null, slot:m?+m[2]:null,
+      status:r[14]||"", check:r[15]||"", paid:String(r[16]||"").trim() ? money(r[16]) : null, tier:tierOf(r[9]), page:m?+m[1]:null, slot:m?+m[2]:null,
       sleeve:/^upgrade/i.test(String(r[15]||""))};
   });
   if (key === "storage") {
