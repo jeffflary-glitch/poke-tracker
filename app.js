@@ -4,8 +4,9 @@
      sheetId    Google Sheet ID                → the app only accepts data from this sheet
      photos     "sealed/"                      → folder holding photos.json and your own photos
      store      "pkt" / "pkt-max"              → prefix for what the app saves on the phone (keeps apps apart)
-     api        Apps Script /exec link         → optional: this tracker's own data link (default: Jeff's) */
-const CFG = Object.assign({sheetName:"Pokemon tracker Jeff", sheetId:"", photos:"sealed/", store:"pkt"}, window.PKT || {});
+     api        Apps Script /exec link         → optional: this tracker's own data link (default: Jeff's)
+     photoScan  false                          → optional: no photo scanning (no Claude API key); cards are typed in */
+const CFG = Object.assign({sheetName:"Pokemon tracker Jeff", sheetId:"", photos:"sealed/", store:"pkt", photoScan:true}, window.PKT || {});
 const SHEET_ID = CFG.sheetId;
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit";
 // The Apps Script web app: "?data=1" returns the sheet as data; POSTs scan cards and save bulk counts.
@@ -253,7 +254,7 @@ function removeView(){
   if (d) return `<p class="rmdone">${esc(d.reason || "Removed")} ${int(d.removed)} × ${esc(d.name)}${d.sold !== "" && d.sold != null ? ` for ${usd(+d.sold)} each` : ""}${d.left ? ` · ${int(d.left)} left` : ""}.</p>
     ${!d.left && /^(Binder|Buffer)/i.test(d.loc) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${/^Buffer/i.test(d.loc) ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}
     ${d.reason ? `<p class="note" style="margin:0">Logged on the “Sold &amp; Opened” tab.</p>` : ""}
-    ${d.reason === "Opened" ? `<button class="btn primary big" type="button" id="rmpulls">Scan what you pulled</button>` : ""}`;
+    ${d.reason === "Opened" ? `<button class="btn primary big" type="button" id="rmpulls">${CFG.photoScan ? "Scan" : "Add"} what you pulled</button>` : ""}`;
   if (!RM.open) return `<button class="btn big rmbtn" type="button" id="rmopen">Remove from collection</button>`;
   const why = RM_REASONS.find(x => x.k === RM.reason);
   return `<div class="rmbox">
@@ -703,9 +704,10 @@ function viewStorage(){
 /* ---------- scan cards ---------- */
 /* "Scan" in the header: take a photo → the Apps Script (Scan.gs) asks Claude to read the cards and looks up
    prices → you check the list → "Add" writes the rows to this app's sheet with the same storage rules as the chat skill.
+   "Type a card" skips the photo: name + card number are looked up in TCGdex (free, no AI) and land on the same list.
    The Claude API key never comes to the phone; it stays in Apps Script. The phone only keeps the passcode. */
 const PASS_KEY = CFG.store + "-pass";
-const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add"};
+const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add", typed:false, t:{name:"", number:"", finish:"normal", set:""}};
 /* Bulk counts: one count row per set and type, like "Journey Together non-foil bulk (count)".
    Trainers and basic Energy each share one row (Bulk Row 3 has no set dividers). Must match Scan.gs (SCAN_BULK). */
 const BULK = {
@@ -780,11 +782,11 @@ function openScan(){
   const d = $("scan");
   SC.err = "";
   if (SC.step === "done" || SC.step === "working" || SC.step === "adding") resetScan();
-  SC.step = getPass() ? (SC.cards.length ? "review" : SC.step === "bulk" ? "bulk" : "pick") : "pass";
+  SC.step = getPass() ? (SC.cards.length ? "review" : SC.step === "bulk" || SC.step === "type" ? SC.step : "pick") : "pass";
   renderScan();
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
 }
-function resetScan(){ Object.assign(SC, {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, batch:"", lines:[], bmode:"add"}); }
+function resetScan(){ Object.assign(SC, {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, batch:"", lines:[], bmode:"add", typed:false}); }
 function closeScan(){
   const d = $("scan");
   if (d.close) d.close(); else d.removeAttribute("open");
@@ -793,41 +795,57 @@ function closeScan(){
 
 function renderScan(){
   const d = $("scan");
-  const head = `<div class="dhead shead"><h2>Scan cards</h2><button class="btn" type="button" id="sclose">Close</button></div>`;
+  const head = `<div class="dhead shead"><h2>${CFG.photoScan ? "Scan cards" : "Add cards"}</h2><button class="btn" type="button" id="sclose">Close</button></div>`;
   const err = SC.err ? `<div class="secerr" role="alert">${esc(SC.err)}</div>` : "";
   let body = "";
   if (SC.step === "pass") {
-    body = `<p class="note" style="margin:0">Enter the scanner passcode once on this phone. It's set in Apps Script, so only people you give it to can scan into “${esc(CFG.sheetName)}”.</p>
+    body = `<p class="note" style="margin:0">Enter the scanner passcode once on this phone. It's set in Apps Script, so only people you give it to can add cards to “${esc(CFG.sheetName)}”.</p>
       ${err}
       <label class="field"><span>Passcode</span><input id="spass" type="password" autocomplete="current-password" enterkeyhint="go"></label>
       <button class="btn primary big" type="button" id="sunlock">Unlock scanner</button>`;
   } else if (SC.step === "pick") {
     body = `${err}
-      <label class="btn primary big" for="scam">Take a photo</label>
+      ${CFG.photoScan ? `<label class="btn primary big" for="scam">Take a photo</label>
       <input id="scam" type="file" accept="image/*" capture="environment" hidden>
       <label class="btn big" for="slib">Choose from photos</label>
-      <input id="slib" type="file" accept="image/*" hidden>
+      <input id="slib" type="file" accept="image/*" hidden>` : ""}
+      <button class="btn big${CFG.photoScan ? "" : " primary"}" type="button" id="stype">Type a card${CFG.photoScan ? ` <span class="muted">· no photo</span>` : ""}</button>
       <button class="btn big" type="button" id="sbulk">Add bulk counts <span class="muted">· no photo</span></button>
       <ul class="tips">
-        <li>Up to 9 cards, flat on a plain background, in rows like a binder page.</li>
-        <li>Good light and no glare on the bottom corners, where the set number is.</li>
+        ${CFG.photoScan ? `<li>Up to 9 cards, flat on a plain background, in rows like a binder page.</li>
+        <li>Good light and no glare on the bottom corners, where the set number is.</li>` : `<li>The card number is in a bottom corner, like 025/165.</li>`}
         <li>Nothing is added until you check the list and tap Add.</li>
       </ul>
       <p class="note" style="margin:0">Saves to “${esc(CFG.sheetName)}”. <button class="linkbtn" type="button" id="sforget">Forget passcode on this phone</button></p>`;
   } else if (SC.step === "working" || SC.step === "adding") {
     body = `${SC.photo ? `<img class="sphoto sm" src="${SC.photo}" alt="Your photo">` : ""}
-      <div class="sbusy">${SC.step === "working" ? wolfRun() : wolfClip()}<p>${SC.step === "working" ? "Reading your cards and looking up prices…" : "Adding to “" + esc(CFG.sheetName) + "”…"}</p></div>
-      <p class="note" style="margin:0;text-align:center">${SC.step === "working" ? "This usually takes 15–60 seconds." : ""}</p>`;
+      <div class="sbusy">${SC.step === "working" ? wolfRun() : wolfClip()}<p>${SC.step === "adding" ? "Adding to “" + esc(CFG.sheetName) + "”…" : SC.typed ? "Looking up the card and its price…" : "Reading your cards and looking up prices…"}</p></div>
+      <p class="note" style="margin:0;text-align:center">${SC.step === "adding" ? "" : SC.typed ? "This takes a few seconds." : "This usually takes 15–60 seconds."}</p>`;
+  } else if (SC.step === "type") {
+    const t = SC.t, n = SC.cards.length;
+    body = `${err}
+      <p class="note" style="margin:0">Type what's printed on the card. The set and price are looked up for you.</p>
+      <label class="field"><span>Card name</span><input id="tname" value="${esc(t.name)}" placeholder="e.g. Pikachu ex" autocomplete="off" autocapitalize="words"></label>
+      <div class="sflds b2">
+        <label class="field"><span>Card #</span><input id="tnum" value="${esc(t.number)}" placeholder="025/165" autocomplete="off" enterkeyhint="search"></label>
+        <label class="field"><span>Foil</span><select id="tfinish">${[["normal","No foil"],["holo","Holo"],["reverse","Reverse holo"]].map(([v, l]) => `<option value="${v}"${v === t.finish ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+      </div>
+      <label class="field"><span>Set <i class="muted">optional, helps for promos</i></span><input id="tset" list="tsets" value="${esc(t.set)}" placeholder="e.g. Surging Sparks" autocomplete="off"></label>
+      <datalist id="tsets">${[...new Set((S.data.collection || []).map(r => String(r.set || "").replace(/\s*\(.*\)\s*$/, "").trim()).filter(x => x && !/^mixed$/i.test(x)))].sort().map(x => `<option value="${esc(x)}">`).join("")}</datalist>
+      <div class="sbar">
+        <button class="btn" type="button" id="${n ? "treview" : "sback"}">${n ? "Back to list (" + n + ")" : "Back"}</button>
+        <button class="btn primary" type="button" id="tlook">Look it up</button>
+      </div>`;
   } else if (SC.step === "review") {
     const keep = SC.cards.filter(c => !c.skip);
     const missing = keep.filter(c => !isFinite(parseFloat(c.price)) || String(c.price ?? "").trim() === "");
     body = `${SC.photo ? `<img class="sphoto sm" src="${SC.photo}" alt="Your photo">` : ""}
       ${SC.note ? `<div class="secerr">${esc(SC.note)}</div>` : ""}${err}
-      ${SC.cards.length ? `<p class="note" style="margin:0">Found ${SC.cards.length} ${SC.cards.length === 1 ? "item" : "items"}. Check each one, fix anything that's off, then add.</p>` : `<p class="note" style="margin:0">No cards were found in that photo. Try again closer up, with good light.</p>`}
+      ${SC.cards.length ? `<p class="note" style="margin:0">${SC.typed ? "" : "Found "}${SC.cards.length} ${SC.cards.length === 1 ? "item" : "items"}${SC.typed ? " ready" : ""}. Check each one, fix anything that's off, then add.</p>` : `<p class="note" style="margin:0">No cards were found in that photo. Try again closer up, with good light.</p>`}
       <div class="scards">${SC.cards.map(scanCardView).join("")}</div>
       <p class="note warn" id="smissing" style="margin:0"${missing.length ? "" : " hidden"}>${missingText(missing)}</p>
       <div class="sbar">
-        <button class="btn" type="button" id="sretake">Retake</button>
+        ${SC.typed ? `<button class="btn" type="button" id="stype">Type another</button>` : `<button class="btn" type="button" id="sretake">Retake</button>`}
         <button class="btn primary" type="button" id="sadd" ${!keep.length || missing.length ? "disabled" : ""}>Add ${keep.length} to sheet</button>
       </div>
       ${SC.cost ? `<p class="note" style="margin:0;text-align:center">This scan cost about ${SC.cost < 0.01 ? "under 1¢" : Math.round(SC.cost * 100) + "¢"}.</p>` : ""}`;
@@ -856,7 +874,7 @@ function renderScan(){
       ${r.grading ? `<p class="note" style="margin:0">${r.grading === 1 ? "1 card is" : r.grading + " cards are"} on the Grading tab. Add PSA prices there to get the grade-or-skip verdict.</p>` : ""}
       ${r.next ? `<div class="spots"><div class="spot"><div class="eyebrow">Next binder slot</div><div class="v">${esc(r.next.binder || "–")}</div></div><div class="spot"><div class="eyebrow">Next buffer</div><div class="v">${esc(r.next.buffer || "–")}</div></div></div>` : ""}
       </div>
-      <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">${r.bulkOnly ? "More counts" : "Scan more"}</button></div>`;
+      <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">${r.bulkOnly ? "More counts" : CFG.photoScan ? "Scan more" : "Add more"}</button></div>`;
   }
   d.innerHTML = head + `<div class="dbody sbody">${body}</div>`;
   wireScan();
@@ -871,7 +889,7 @@ function scanCardView(c, k){
       <span class="thumb">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : ""}</span>
       <div class="sinfo">
         <div class="nm">${esc(c.name)} ${conf ? `<span class="flag${c.confidence === "low" ? " bad" : ""}">${conf}</span>` : ""}</div>
-        <div class="meta">${esc(c.set)}${c.number ? " · " + esc(c.number) : ""}${c.rarity ? " · " + esc(c.rarity) : ""}</div>
+        <div class="meta">${[c.set, c.number, c.rarity].filter(Boolean).map(esc).join(" · ")}</div>
       </div>
       <button class="btn" type="button" data-skip="${k}" aria-label="${c.skip ? "Include" : "Leave out"} ${esc(c.name)}">${c.skip ? "Include" : "Leave out"}</button>
     </div>
@@ -904,7 +922,7 @@ function wireScan(){
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on("sclose", closeScan);
   on("sfinish", closeScan);
-  on("smore", () => { const bulk = SC.result && SC.result.bulkOnly; resetScan(); if (bulk) SC.step = "bulk"; renderScan(); });
+  on("smore", () => { const bulk = SC.result && SC.result.bulkOnly; resetScan(); if (bulk) SC.step = "bulk"; else if (!CFG.photoScan) SC.step = "type"; renderScan(); });
   on("sretake", () => { resetScan(); renderScan(); });
   on("sforget", () => { setPass(""); SC.step = "pass"; renderScan(); });
   on("sunlock", unlockScan);
@@ -913,6 +931,14 @@ function wireScan(){
   ["scam", "slib"].forEach(id => { const el = $(id); if (el) el.onchange = () => el.files && el.files[0] && runScan(el.files[0]); });
   on("sadd", addScan);
   on("sbulk", () => { SC.err = ""; SC.step = "bulk"; renderScan(); });
+  on("stype", () => { SC.err = ""; SC.step = "type"; renderScan(); });
+  on("treview", () => { SC.err = ""; SC.step = "review"; renderScan(); });
+  on("tlook", lookupCard);
+  if (SC.step === "type") {
+    ["tname", "tnum", "tset", "tfinish"].forEach(id => { const el = $(id); el.oninput = el.onchange = () => { SC.t[{tname:"name", tnum:"number", tset:"set", tfinish:"finish"}[id]] = el.value; }; });
+    ["tnum", "tset"].forEach(id => { $(id).onkeydown = e => { if (e.key === "Enter") lookupCard(); }; });
+    setTimeout(() => { const n = $("tname"); if (n) n.focus(); }, 50);
+  }
   on("sback", () => { SC.err = ""; SC.step = "pick"; renderScan(); });
   on("badd", () => { const last = SC.lines[SC.lines.length - 1] || {}; SC.lines.push({kind:last.kind || "nonfoil", set:BULK[last.kind] && !BULK[last.kind].fixed ? last.set || "" : "", qty:"", price:""}); renderScan(); const q = document.querySelectorAll("#scan [data-bf=qty]"); if (q.length) q[q.length - 1].focus(); });
   on("bsave", saveBulk);
@@ -997,6 +1023,25 @@ async function runScan(file){
   renderScan();
 }
 
+// "Type a card": looks the card up (Scan.gs, action "lookup", no AI) and adds it to the list to check.
+async function lookupCard(){
+  const t = SC.t;
+  if (!t.name.trim() || !t.number.trim()) { SC.err = "Type the card name and its number."; renderScan(); return; }
+  SC.err = ""; SC.typed = true; SC.step = "working"; renderScan();
+  try {
+    const d = await scanCall({action:"lookup", card:{name:t.name.trim(), number:t.number.trim(), finish:t.finish, set:t.set.trim()}}, 45000);
+    SC.cards.push(Object.assign({skip:false}, d.card, {bulk:bulkByDefault(d.card)}));
+    if (!SC.batch) SC.batch = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    SC.t = {name:"", number:"", finish:t.finish, set:t.set};
+    SC.step = "review";
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") { setPass(""); SC.step = "pass"; }
+    else SC.step = "type";
+    SC.err = e.message === "Unknown request." ? "Typing cards needs the newest Scan.gs: paste it into Apps Script and deploy a new version." : e.message;
+  }
+  renderScan();
+}
+
 async function addScan(){
   const keep = SC.cards.filter(c => !c.skip);
   if (!keep.length) return;
@@ -1060,12 +1105,14 @@ function initScan(){
   if (!$("refresh") || $("scanBtn")) return;
   const b = document.createElement("button");
   b.className = "btn primary"; b.id = "scanBtn"; b.type = "button";
-  b.setAttribute("aria-label", "Scan cards with the camera");
-  b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Scan';
+  b.setAttribute("aria-label", CFG.photoScan ? "Scan cards with the camera" : "Add cards");
+  b.innerHTML = CFG.photoScan
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Scan'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add';
   b.onclick = openScan;
   $("refresh").before(b);
   const d = document.createElement("dialog");
-  d.id = "scan"; d.setAttribute("aria-label", "Scan cards");
+  d.id = "scan"; d.setAttribute("aria-label", CFG.photoScan ? "Scan cards" : "Add cards");
   d.addEventListener("cancel", e => { if (SC.step === "working" || SC.step === "adding") e.preventDefault(); else { e.preventDefault(); closeScan(); } });
   document.body.appendChild(d);
 }

@@ -10,6 +10,7 @@
 //   3. You check the list in the app, fix anything, then tap Add → rows are written to Collection (A–K)
 //      using the same storage rules as the chat skill, and $20+ cards also get a Grading row.
 //      Cheap commons/uncommons can instead be added to their set's bulk count row.
+// Type a card (no photo, no AI): name + card number → the same TCGdex check and price, then the same review and Add.
 // Bulk counts (no photo, no AI): "add 40 Journey Together non-foil" adds to that set's count row,
 // or starts one, e.g. "Journey Together non-foil bulk (count)" in Bulk Row 2 – Journey Together.
 // Remove (Remove button on a card's details): takes some or all of a row out of the sheet and logs why
@@ -27,7 +28,7 @@ const SCAN_TZ = 'America/Chicago';
 const SCAN_BINDER_SLOTS = 360;
 
 /* ---------- web entry ---------- */
-// The app POSTs JSON as plain text: {action:"check"|"identify"|"add"|"bulk"|"remove", pass, ...}
+// The app POSTs JSON as plain text: {action:"check"|"identify"|"lookup"|"add"|"bulk"|"remove", pass, ...}
 function doPost(e) {
   let out;
   try {
@@ -35,6 +36,7 @@ function doPost(e) {
     scanCheckPass_(req.pass);
     if (req.action === 'check') out = {ok: true, sheetId: scanSheetId_()};
     else if (req.action === 'identify') out = scanIdentify_(req.image, req.mediaType);
+    else if (req.action === 'lookup') out = scanLookup_(req.card);
     else if (req.action === 'add') out = scanAdd_(req.cards, req.batch);
     else if (req.action === 'bulk') out = scanBulkOnly_(req.entries, req.batch);
     else if (req.action === 'remove') out = scanRemove_(req.item, req.qty, req.batch, req.why);
@@ -76,6 +78,18 @@ function scanIdentify_(image, mediaType) {
     photoNote: ai.result.photoNote || '',
     cost: Math.round((ai.cost + webCost) * 10000) / 10000
   };
+}
+
+// A card typed in the app (name, card number, finish, optional set): TCGdex only, so it costs nothing.
+function scanLookup_(t) {
+  t = t || {};
+  const name = String(t.name || '').trim(), number = String(t.number || '').trim();
+  if (!name || !number) throw new Error('Type the card name and its number.');
+  const finish = ['normal', 'holo', 'reverse'].indexOf(t.finish) >= 0 ? t.finish : 'normal';
+  const c = scanEnrich_({kind: 'card', name: name, set: String(t.set || '').trim(), number: scanFmtNumber_(number), finish: finish,
+    foil: finish !== 'normal', confidence: 'high', fromDb: true}, scanSheetSets_());
+  scanChecks_(c);
+  return {card: c};
 }
 
 // Sealed product, no price, not found, unsure, or a set/name that didn't match (the only checks so far).
@@ -257,8 +271,9 @@ function scanFindCard_(c) {
     const card = id && scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id));
     if (fits(card)) return card;
   }
-  // 2. The same name and number in any set
-  const list = scanGetJSON_(SCAN_TCG + '/cards?name=eq:' + encodeURIComponent(name)) || [];
+  // 2. The same name and number in any set (exact name first; a typed name may differ in capitals or accents)
+  let list = scanGetJSON_(SCAN_TCG + '/cards?name=eq:' + encodeURIComponent(name)) || [];
+  if (!list.some(x => scanNumKey_(x.localId) === nk)) list = scanGetJSON_(SCAN_TCG + '/cards?name=' + encodeURIComponent(name)) || [];
   for (const h of list.filter(x => scanNumKey_(x.localId) === nk).slice(0, 4)) {
     const card = scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(h.id));
     if (fits(card)) return card;
@@ -344,6 +359,12 @@ function scanEnrich_(c, known) {
   } catch (e) {}
   if (card) {
     if (card.set && card.set.name) out.set = card.set.name;
+    if (c.fromDb) {   // typed cards: rarity and type come from the database instead of the photo
+      out.name = card.name || out.name;
+      out.rarity = card.rarity || '';
+      out.category = {Pokemon: 'Pokémon', Trainer: 'Trainer', Energy: 'Energy'}[card.category] || out.category;
+      out.basicEnergy = card.category === 'Energy' && /basic|normal/i.test(card.energyType || '');
+    }
     if (card.image) out.image = card.image + '/low.webp';
     // Card number as the sheet writes it: "053/159"; promos and other codes stay as printed
     const off = card.set && card.set.cardCount && card.set.cardCount.official;
