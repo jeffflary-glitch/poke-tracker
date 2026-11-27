@@ -108,7 +108,7 @@ function loadSets(){
           if (x.logo) idx.logos[k] = x.logo;
         }
         cachePut("pkt-tcg-sets2", idx);
-      } catch(e) { idx = {ids:{}, logos:{}}; }
+      } catch(e) { IMG.loading._sets = null; throw e; }
     }
     IMG.sets = idx.ids; IMG.logos = idx.logos;
   })());
@@ -122,7 +122,7 @@ function loadSet(id){
         m = {};
         for (const c of (await getJSON(TCG + "/sets/" + encodeURIComponent(id))).cards || []) if (c.image) m[numKey(c.localId)] = c.image;
         cachePut("pkt-tcg-set-" + id, m);
-      } catch(e) { m = {}; }
+      } catch(e) { delete IMG.loading[id]; throw e; }
     }
     IMG.maps[id] = m;
   })());
@@ -146,7 +146,7 @@ function loadName(name){
           if (c.image && !m[nk]) m[nk] = c.image;
         }
         cachePut("pkt-tcg-name-" + k, m);
-      } catch(e) { m = {}; }
+      } catch(e) { delete IMG.loading["n:" + k]; throw e; }
     }
     IMG.names[k] = m;
   })());
@@ -198,9 +198,10 @@ function hydrate(root){
     if (u) putImg(el, u.url, u.logo);
   });
   if (!need.size && !needNames.size && !wantSealed) return;
+  // A failed lookup is not remembered as "no picture": the boxes stay open and the next screen or Refresh tries again.
   Promise.all([loadSets(), wantSealed ? loadPhotos() : null])
-    .then(() => Promise.all([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; }).concat([...needNames].map(loadName))))
-    .then(() => hydrate(root));
+    .then(() => Promise.allSettled([...need].map(n => { const id = setIdFor(n); return id ? loadSet(id) : null; }).concat([...needNames].map(loadName))))
+    .then(rs => { if (rs.some(r => r.status === "fulfilled")) hydrate(root); }, () => {});
 }
 
 /* ---------- card details ---------- */
