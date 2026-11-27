@@ -217,7 +217,7 @@ function priceUrl(r){
 const PRICE_SRC = {
   single: "TCGplayer market price, looked up in TCGdex every morning.",
   sealed: "TCGplayer market price (or eBay sold prices if TCGplayer has none), found by web search every Sunday.",
-  ball: "TCGdex has no Poké Ball or Master Ball pattern prices, so this stays at the price it was added with.",
+  ball: "TCGplayer market price for this pattern (or eBay sold prices if TCGplayer has none), found by web search every Sunday.",
   count: "Set by hand for this bulk count. It isn't checked automatically."
 };
 const priceSrc = r => /\(count\)/i.test(r.name) ? PRICE_SRC.count : r.cat === "Sealed" ? PRICE_SRC.sealed
@@ -617,7 +617,7 @@ function viewOverview(){
     <div class="eyebrow">Collection value · ${esc(CFG.sheetName)}</div>
     <div class="big">${usd(value)}</div>
     <div class="sub"><span><b>${int(cardQty)}</b> cards</span><span><b>${int(sealedQty)}</b> sealed items</span><span><b>${int(c.length)}</b> rows</span>${S.data.log && S.data.log.length ? `<span>Last weekly check <b>${esc(S.data.log[S.data.log.length-1].date)}</b></span>` : ""}</div>
-    <div class="sub">Prices: singles are TCGplayer market prices from TCGdex, every morning. Sealed items come from a web search of TCGplayer, every Sunday.</div>
+    <div class="sub">Prices: singles are TCGplayer market prices from TCGdex, every morning. Sealed items and Poké Ball / Master Ball patterns come from a web search of TCGplayer, every Sunday.</div>
   </section>
   <section class="panel">
     <h2>Where the value sits</h2>

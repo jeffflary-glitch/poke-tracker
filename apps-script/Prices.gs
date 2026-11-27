@@ -4,7 +4,8 @@
 //
 // Every morning (dailyPriceCheck, free): each single card on the Collection tab is looked up in TCGdex and gets its
 //   TCGplayer market price. Changes go on Price History and the Grading tab's Raw NM.
-// Every Sunday (weeklyPriceCheck): sealed product and the Grading tab's PSA 10/9/8 prices are found by web search
+// Every Sunday (weeklyPriceCheck): sealed product, Poké Ball / Master Ball pattern singles (TCGdex has no prices for
+//   either) and the Grading tab's PSA 10/9/8 prices are found by web search
 //   (Claude Haiku on Script Property ANTHROPIC_API_KEY, a few cents a week; skipped without a key), a Price & Value
 //   Logs row is added, and the week's changes are emailed to Script Property REPORT_EMAIL (separate several with commas).
 // "(count)" bulk rows keep their set price.
@@ -13,6 +14,15 @@
 // run on a timer). Running dailyPriceCheck or weeklyPriceCheck by hand does a check right away.
 
 const PRICE_RUN_MINUTES = 5;   // Apps Script stops a run at 6 minutes; cards not reached are named in the email
+const PRICE_PATTERN = /pok[eé] ?ball|master ?ball/i;   // Rarity of a Poké Ball / Master Ball pattern single
+const PRICE_PATTERN_SYSTEM = [
+  'You find the current US market price of one Poké Ball pattern or Master Ball pattern Pokémon TCG card for a collection tracker.',
+  'Search the web for the exact card (same name, set and number) in the stated pattern. TCGplayer lists each pattern as its own product, such as "Leafeon (Master Ball Pattern)". Use its Near Mint TCGplayer market price (what it has recently sold for) from tcgplayer.com or a site that shows it, such as pricecharting.com or scrydex.com. If none is listed, use recent eBay sold prices.',
+  'Never use the price of the regular card or of the other pattern.'
+].concat(SCAN_WEB_RULES, [
+  '{"price": 12.34, "source": "e.g. TCGplayer market price via PriceCharting", "note": ""}',
+  'Use "price": null if you can\'t find a trustworthy current price for this pattern.'
+]).join('\n');
 const PRICE_PSA_SYSTEM = [
   'You find recent sold prices of one PSA-graded Pokémon TCG card for a collection tracker.',
   'Search the web for the exact card (same name, set and number). Use recent sold prices for PSA 10, PSA 9 and PSA 8 copies from pricecharting.com, PSA\'s auction prices, or eBay sold listings.',
@@ -44,7 +54,7 @@ function dailyPriceCheck() {
     const [name, set, number, rarity, category, , qty, price] = r;
     if (!name || category === 'Sealed' || /\(count\)\s*$/i.test(name) || !number) return;
     if (Date.now() - started > PRICE_RUN_MINUTES * 60000) { skipped.push(name); return; }
-    if (/pok[eé] ?ball|master ?ball/i.test(rarity)) { missed.push(name + ' (Poké Ball / Master Ball pattern)'); return; }
+    if (PRICE_PATTERN.test(rarity)) return;   // priced by web search on Sundays
     let card = null;
     try { card = scanFindCard_({name: name, set: set, number: String(number)}); } catch (e) {}
     const now = card ? pricePick_(scanPrices_(card), rarity, Number(price)) : null;
@@ -75,7 +85,7 @@ function pricePick_(prices, rarity, old) {
   return keys.map(k => prices[k]).sort((a, b) => Math.abs(a - old) - Math.abs(b - old))[0];
 }
 
-/* ---------- every Sunday: sealed, PSA prices, log row and email ---------- */
+/* ---------- every Sunday: sealed, pattern singles, PSA prices, log row and email ---------- */
 function weeklyPriceCheck() {
   const started = Date.now();
   const ss = SpreadsheetApp.openById(scanSheetId_());
@@ -85,7 +95,7 @@ function weeklyPriceCheck() {
   const missed = [];
   let cost = 0;
   if (web) {
-    cost += priceSealed_(ss, col, date, missed, started);
+    cost += priceWeb_(ss, col, date, missed, started);
     cost += pricePsa_(ss, missed, started);
   }
   SpreadsheetApp.flush();
@@ -102,7 +112,7 @@ function weeklyPriceCheck() {
     const lr = scanFirstEmptyRow_(log);
     if (lr > 2) before = Number(log.getRange(lr - 1, 3).getValue());
     const daily = priceLastDaily_();
-    const note = 'Weekly check: ' + (daily ? daily.checked + ' singles priced daily' : 'no daily check yet') + (web ? ', sealed and PSA prices by web search (about '
+    const note = 'Weekly check: ' + (daily ? daily.checked + ' singles priced daily' : 'no daily check yet') + (web ? ', sealed, pattern and PSA prices by web search (about '
       + Math.max(1, Math.round(cost * 100)) + '¢)' : '') + '.';
     scanWriteRows_(log, lr, [[date, items, value, note]], {dateCol: 1});
   }
@@ -110,28 +120,41 @@ function weeklyPriceCheck() {
   priceEmail_(ss, date, items, value, before, priceWeekChanges_(ss, date), toMove, missed, web);
 }
 
-// Sealed product: web prices, 10 at a time. Returns the cost in dollars.
-function priceSealed_(ss, col, date, missed, started) {
+// Sealed product and Poké Ball / Master Ball pattern singles: web prices, 10 at a time. Returns the cost in dollars.
+function priceWeb_(ss, col, date, missed, started) {
   const last = scanFirstEmptyRow_(col) - 1;
   const rows = last >= 2 ? col.getRange(2, 1, last - 1, 8).getValues() : [];
-  const sealed = [];
-  rows.forEach((r, i) => { if (r[0] && r[4] === 'Sealed') sealed.push({row: i + 2, name: r[0], set: r[1], price: Number(r[7]) || 0, qty: Number(r[6]) || 1}); });
-  const changes = [];
+  const changes = [], jobs = [];
+  rows.forEach((r, i) => {
+    const [name, set, number, rarity, category, , , price] = r;
+    const sealed = category === 'Sealed';
+    if (!name || !(sealed || (number && PRICE_PATTERN.test(rarity) && !/\(count\)\s*$/i.test(name)))) return;
+    const old = Number(price) || 0;
+    const job = {
+      label: name + (sealed ? ' (sealed)' : ' · ' + set + ' ' + number + ' (pattern)'),
+      system: sealed ? SCAN_SEALED_SYSTEM : PRICE_PATTERN_SYSTEM,
+      question: sealed ? scanWebQuestion_({kind: 'sealed', name: name, set: set})
+        : 'Card: ' + name + '\nSet: ' + set + '\nNumber: ' + number + '\nPattern: ' + (/master/i.test(rarity) ? 'Master Ball pattern' : 'Poké Ball pattern'),
+      done: content => {
+        const a = scanWebAnswer_(content);
+        if (!a || a.price == null) return;
+        job.priced = true;
+        if (Math.abs(a.price - old) < 0.005) return;
+        col.getRange(i + 2, 8).setValue(a.price);
+        changes.push({name: name, set: set, number: sealed ? '' : String(number), old: old, now: a.price});
+      }
+    };
+    jobs.push(job);
+  });
   let cost = 0;
-  for (let i = 0; i < sealed.length; i += 10) {
-    const group = sealed.slice(i, i + 10);
-    if (Date.now() - started > PRICE_RUN_MINUTES * 60000) { group.forEach(x => missed.push(x.name + ' (not reached)')); continue; }
-    const items = group.map(x => ({kind: 'sealed', name: x.name, set: x.set, price: null, priceNote: '', checks: []}));
-    cost += scanWebCheck_(items);
-    items.forEach((it, k) => {
-      const x = group[k];
-      if (it.price == null) { missed.push(x.name + ' (sealed)'); return; }
-      if (Math.abs(it.price - x.price) < 0.005) return;
-      col.getRange(x.row, 8).setValue(it.price);
-      changes.push({name: x.name, set: x.set, number: '', old: x.price, now: it.price});
-    });
+  for (let i = 0; i < jobs.length; i += 10) {
+    const group = jobs.slice(i, i + 10);
+    if (Date.now() - started > PRICE_RUN_MINUTES * 60000) { group.forEach(j => missed.push(j.label + ' (not reached)')); continue; }
+    cost += scanWebAsk_(group);
+    group.filter(j => !j.priced).forEach(j => missed.push(j.label));
   }
   priceLog_(ss, date, changes);
+  priceGradingRaw_(ss, changes);
   return cost;
 }
 
@@ -240,7 +263,7 @@ function priceEmail_(ss, date, items, value, before, changes, toMove, missed, we
   const notFound = [...new Set((daily ? daily.missed : []).concat(missed))];
   if (notFound.length) lines.push('No price found (check these on TCGplayer): ' + notFound.join('; ') + '.', '');
   if (daily && daily.skipped && daily.skipped.length) lines.push('The daily check ran out of time before: ' + daily.skipped.join(', ') + '.', '');
-  if (!web) lines.push('Sealed and PSA prices aren\'t updated automatically without an API key; change them in the sheet.', '');
+  if (!web) lines.push('Sealed, Poké Ball / Master Ball pattern and PSA prices aren\'t updated automatically without an API key; change them in the sheet.', '');
   lines.push(ss.getUrl());
   MailApp.sendEmail(to, 'Pokémon cards: ' + usd(value) + (diff != null ? (diff >= 0 ? ' ▲ ' : ' ▼ ') + usd(Math.abs(diff)) : ''), lines.join('\n'));
 }
