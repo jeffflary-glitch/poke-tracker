@@ -1,0 +1,154 @@
+{
+ "S1": "={\"Storage Unit\";MAP(J2:J,LAMBDA(j,IF(j=\"\",\"\",LET(L,Storage!$A$2:$A$30,pre,ARRAYFORMULA((L<>\"\")*(LEFT(j&\" \",LEN(L)+1)=L&\" \")*LEN(L)),IF(MAX(pre)=0,\"\",INDEX(L,MATCH(MAX(pre),pre,0)))))))}",
+ "M1": "={\"Auto Storage Recommendation\";MAP(A2:A,B2:B,E2:E,H2:H,LAMBDA(a,b,e,h,IF(a=\"\",\"\",LET(L,Storage!$A$2:$A$30,T,Storage!$B$2:$B$30,ST,Storage!$F$2:$F$30,MN,Storage!$G$2:$G$30,MX,Storage!$H$2:$H$30,fit,ARRAYFORMULA((L<>\"\")*IF(e=\"Sealed\",T=\"Sealed\",T<>\"Sealed\")*(((ST=\"\")+(LOWER(TRIM(ST))=LOWER(TRIM(b))))>0)*(((MN=\"\")+(h>=MN))>0)*(((MX=\"\")+(h<=MX))>0)),sc,ARRAYFORMULA(fit*(1000+(ST<>\"\")*100+((MN<>\"\")+(MX<>\"\"))*10-SEQUENCE(ROWS(L))/100)),IF(MAX(sc)<=0,\"⚠ No storage fits\",INDEX(L,MATCH(MAX(sc),sc,0)))))))}",
+ "N1": "={\"Required Protection / Prep\";MAP(A2:A,J2:J,M2:M,O2:O,S2:S,LAMBDA(a,j,m,o,s,IF(a=\"\",\"\",LET(t,IFERROR(INDEX(Storage!$B$2:$B$30,MATCH(IF(LEFT(o,6)=\"Stored\",s,m),Storage!$A$2:$A$30,0)),\"\"),IFS(t=\"Top loaders\",\"Penny Sleeve + 35pt Top Loader\",t=\"Binder\",\"Penny Sleeve + Side-Load Pocket\",t=\"Sealed\",\"Sealed Display / PET Case\",t=\"Bulk box\",IF(REGEXMATCH(j,\" Row 1\"),\"Penny Sleeve, file behind divider\",\"Unsleeved, file behind divider\"),TRUE,\"\")))))}",
+ "O1": "={\"Action Status\";MAP(A2:A,B2:B,E2:E,H2:H,J2:J,M2:M,R2:R,S2:S,LAMBDA(a,b,e,h,j,m,r,s,IF(a=\"\",\"\",IF(h=\"\",\"⚠ Needs price\",IF(j=\"\",\"⚠ Needs location\",IF(s=\"\",\"⚠ Unknown spot\",IF(r=TRUE,\"Stored ✓ (your choice)\",IF(LET(L,Storage!$A$2:$A$30,T,Storage!$B$2:$B$30,ST,Storage!$F$2:$F$30,MN,Storage!$G$2:$G$30,MX,Storage!$H$2:$H$30,INDEX(ARRAYFORMULA((L<>\"\")*IF(e=\"Sealed\",T=\"Sealed\",T<>\"Sealed\")*(((ST=\"\")+(LOWER(TRIM(ST))=LOWER(TRIM(b))))>0)*(((MN=\"\")+(h>=MN))>0)*(((MX=\"\")+(h<=MX))>0)),MATCH(s,L,0)))=1,\"Stored ✓\",IF(LEFT(m,1)=\"⚠\",m,\"⚠ Move to \"&m)))))))))}",
+ "P1": "={\"Protection Check\";MAP(A2:A,J2:J,K2:K,M2:M,N2:N,O2:O,S2:S,LAMBDA(a,j,k,m,n,o,s,IF(a=\"\",\"\",IF(k=\"\",\"⚠ Not recorded\",LET(t,IFERROR(INDEX(Storage!$B$2:$B$30,MATCH(IF(LEFT(o,6)=\"Stored\",s,m),Storage!$A$2:$A$30,0)),\"\"),IF(t=\"Sealed\",IF(k=\"Sealed\",\"✓ OK\",\"Upgrade → Sealed storage\"),IF(IFERROR(MATCH(k,{\"Raw (no sleeve)\";\"Penny sleeve\";\"Penny sleeve + binder pocket\";\"Penny sleeve + top loader\";\"Graded slab\"},0)-1,-1)>=IFS(t=\"Top loaders\",3,t=\"Binder\",2,t=\"Bulk box\",IF(REGEXMATCH(j,\" Row 1\"),1,0),TRUE,0),\"✓ OK\",\"Upgrade → \"&n)))))))}",
+ "storage": [
+  [
+   "=IF($A2=\"\",\"\",IF(OR($B2=\"Binder\",$B2=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A2),SUMIF(Collection!$S$2:$S,$A2,Collection!$G$2:$G)))",
+   "=IF($A2=\"\",\"\",$E2-$I2)",
+   "=IF($A2=\"\",\"\",IF($J2<=0,$A2&\" full\",IF($B2=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A2,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A2)+2,99),\"P\\s*(\\d+)\"))-1)*$C2+VALUE(REGEXEXTRACT(MID(j,LEN($A2)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E2),ISNA(MATCH(SEQUENCE($E2),u,0))),1),0),IF(n=0,$A2&\" full\",$A2&\" P\"&ROUNDUP(n/$C2,0)&\" S\"&(MOD(n-1,$C2)+1))),IF($B2=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A2,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A2)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E2),ISNA(MATCH(SEQUENCE($E2),u,0))),1),0),IF(n=0,$A2&\" full\",$A2&\" #\"&n)),$A2))))"
+  ],
+  [
+   "=IF($A3=\"\",\"\",IF(OR($B3=\"Binder\",$B3=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A3),SUMIF(Collection!$S$2:$S,$A3,Collection!$G$2:$G)))",
+   "=IF($A3=\"\",\"\",$E3-$I3)",
+   "=IF($A3=\"\",\"\",IF($J3<=0,$A3&\" full\",IF($B3=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A3,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A3)+2,99),\"P\\s*(\\d+)\"))-1)*$C3+VALUE(REGEXEXTRACT(MID(j,LEN($A3)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E3),ISNA(MATCH(SEQUENCE($E3),u,0))),1),0),IF(n=0,$A3&\" full\",$A3&\" P\"&ROUNDUP(n/$C3,0)&\" S\"&(MOD(n-1,$C3)+1))),IF($B3=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A3,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A3)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E3),ISNA(MATCH(SEQUENCE($E3),u,0))),1),0),IF(n=0,$A3&\" full\",$A3&\" #\"&n)),$A3))))"
+  ],
+  [
+   "=IF($A4=\"\",\"\",IF(OR($B4=\"Binder\",$B4=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A4),SUMIF(Collection!$S$2:$S,$A4,Collection!$G$2:$G)))",
+   "=IF($A4=\"\",\"\",$E4-$I4)",
+   "=IF($A4=\"\",\"\",IF($J4<=0,$A4&\" full\",IF($B4=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A4,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A4)+2,99),\"P\\s*(\\d+)\"))-1)*$C4+VALUE(REGEXEXTRACT(MID(j,LEN($A4)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E4),ISNA(MATCH(SEQUENCE($E4),u,0))),1),0),IF(n=0,$A4&\" full\",$A4&\" P\"&ROUNDUP(n/$C4,0)&\" S\"&(MOD(n-1,$C4)+1))),IF($B4=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A4,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A4)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E4),ISNA(MATCH(SEQUENCE($E4),u,0))),1),0),IF(n=0,$A4&\" full\",$A4&\" #\"&n)),$A4))))"
+  ],
+  [
+   "=IF($A5=\"\",\"\",IF(OR($B5=\"Binder\",$B5=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A5),SUMIF(Collection!$S$2:$S,$A5,Collection!$G$2:$G)))",
+   "=IF($A5=\"\",\"\",$E5-$I5)",
+   "=IF($A5=\"\",\"\",IF($J5<=0,$A5&\" full\",IF($B5=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A5,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A5)+2,99),\"P\\s*(\\d+)\"))-1)*$C5+VALUE(REGEXEXTRACT(MID(j,LEN($A5)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E5),ISNA(MATCH(SEQUENCE($E5),u,0))),1),0),IF(n=0,$A5&\" full\",$A5&\" P\"&ROUNDUP(n/$C5,0)&\" S\"&(MOD(n-1,$C5)+1))),IF($B5=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A5,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A5)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E5),ISNA(MATCH(SEQUENCE($E5),u,0))),1),0),IF(n=0,$A5&\" full\",$A5&\" #\"&n)),$A5))))"
+  ],
+  [
+   "=IF($A6=\"\",\"\",IF(OR($B6=\"Binder\",$B6=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A6),SUMIF(Collection!$S$2:$S,$A6,Collection!$G$2:$G)))",
+   "=IF($A6=\"\",\"\",$E6-$I6)",
+   "=IF($A6=\"\",\"\",IF($J6<=0,$A6&\" full\",IF($B6=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A6,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A6)+2,99),\"P\\s*(\\d+)\"))-1)*$C6+VALUE(REGEXEXTRACT(MID(j,LEN($A6)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E6),ISNA(MATCH(SEQUENCE($E6),u,0))),1),0),IF(n=0,$A6&\" full\",$A6&\" P\"&ROUNDUP(n/$C6,0)&\" S\"&(MOD(n-1,$C6)+1))),IF($B6=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A6,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A6)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E6),ISNA(MATCH(SEQUENCE($E6),u,0))),1),0),IF(n=0,$A6&\" full\",$A6&\" #\"&n)),$A6))))"
+  ],
+  [
+   "=IF($A7=\"\",\"\",IF(OR($B7=\"Binder\",$B7=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A7),SUMIF(Collection!$S$2:$S,$A7,Collection!$G$2:$G)))",
+   "=IF($A7=\"\",\"\",$E7-$I7)",
+   "=IF($A7=\"\",\"\",IF($J7<=0,$A7&\" full\",IF($B7=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A7,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A7)+2,99),\"P\\s*(\\d+)\"))-1)*$C7+VALUE(REGEXEXTRACT(MID(j,LEN($A7)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E7),ISNA(MATCH(SEQUENCE($E7),u,0))),1),0),IF(n=0,$A7&\" full\",$A7&\" P\"&ROUNDUP(n/$C7,0)&\" S\"&(MOD(n-1,$C7)+1))),IF($B7=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A7,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A7)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E7),ISNA(MATCH(SEQUENCE($E7),u,0))),1),0),IF(n=0,$A7&\" full\",$A7&\" #\"&n)),$A7))))"
+  ],
+  [
+   "=IF($A8=\"\",\"\",IF(OR($B8=\"Binder\",$B8=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A8),SUMIF(Collection!$S$2:$S,$A8,Collection!$G$2:$G)))",
+   "=IF($A8=\"\",\"\",$E8-$I8)",
+   "=IF($A8=\"\",\"\",IF($J8<=0,$A8&\" full\",IF($B8=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A8,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A8)+2,99),\"P\\s*(\\d+)\"))-1)*$C8+VALUE(REGEXEXTRACT(MID(j,LEN($A8)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E8),ISNA(MATCH(SEQUENCE($E8),u,0))),1),0),IF(n=0,$A8&\" full\",$A8&\" P\"&ROUNDUP(n/$C8,0)&\" S\"&(MOD(n-1,$C8)+1))),IF($B8=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A8,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A8)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E8),ISNA(MATCH(SEQUENCE($E8),u,0))),1),0),IF(n=0,$A8&\" full\",$A8&\" #\"&n)),$A8))))"
+  ],
+  [
+   "=IF($A9=\"\",\"\",IF(OR($B9=\"Binder\",$B9=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A9),SUMIF(Collection!$S$2:$S,$A9,Collection!$G$2:$G)))",
+   "=IF($A9=\"\",\"\",$E9-$I9)",
+   "=IF($A9=\"\",\"\",IF($J9<=0,$A9&\" full\",IF($B9=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A9,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A9)+2,99),\"P\\s*(\\d+)\"))-1)*$C9+VALUE(REGEXEXTRACT(MID(j,LEN($A9)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E9),ISNA(MATCH(SEQUENCE($E9),u,0))),1),0),IF(n=0,$A9&\" full\",$A9&\" P\"&ROUNDUP(n/$C9,0)&\" S\"&(MOD(n-1,$C9)+1))),IF($B9=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A9,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A9)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E9),ISNA(MATCH(SEQUENCE($E9),u,0))),1),0),IF(n=0,$A9&\" full\",$A9&\" #\"&n)),$A9))))"
+  ],
+  [
+   "=IF($A10=\"\",\"\",IF(OR($B10=\"Binder\",$B10=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A10),SUMIF(Collection!$S$2:$S,$A10,Collection!$G$2:$G)))",
+   "=IF($A10=\"\",\"\",$E10-$I10)",
+   "=IF($A10=\"\",\"\",IF($J10<=0,$A10&\" full\",IF($B10=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A10,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A10)+2,99),\"P\\s*(\\d+)\"))-1)*$C10+VALUE(REGEXEXTRACT(MID(j,LEN($A10)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E10),ISNA(MATCH(SEQUENCE($E10),u,0))),1),0),IF(n=0,$A10&\" full\",$A10&\" P\"&ROUNDUP(n/$C10,0)&\" S\"&(MOD(n-1,$C10)+1))),IF($B10=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A10,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A10)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E10),ISNA(MATCH(SEQUENCE($E10),u,0))),1),0),IF(n=0,$A10&\" full\",$A10&\" #\"&n)),$A10))))"
+  ],
+  [
+   "=IF($A11=\"\",\"\",IF(OR($B11=\"Binder\",$B11=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A11),SUMIF(Collection!$S$2:$S,$A11,Collection!$G$2:$G)))",
+   "=IF($A11=\"\",\"\",$E11-$I11)",
+   "=IF($A11=\"\",\"\",IF($J11<=0,$A11&\" full\",IF($B11=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A11,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A11)+2,99),\"P\\s*(\\d+)\"))-1)*$C11+VALUE(REGEXEXTRACT(MID(j,LEN($A11)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E11),ISNA(MATCH(SEQUENCE($E11),u,0))),1),0),IF(n=0,$A11&\" full\",$A11&\" P\"&ROUNDUP(n/$C11,0)&\" S\"&(MOD(n-1,$C11)+1))),IF($B11=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A11,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A11)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E11),ISNA(MATCH(SEQUENCE($E11),u,0))),1),0),IF(n=0,$A11&\" full\",$A11&\" #\"&n)),$A11))))"
+  ],
+  [
+   "=IF($A12=\"\",\"\",IF(OR($B12=\"Binder\",$B12=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A12),SUMIF(Collection!$S$2:$S,$A12,Collection!$G$2:$G)))",
+   "=IF($A12=\"\",\"\",$E12-$I12)",
+   "=IF($A12=\"\",\"\",IF($J12<=0,$A12&\" full\",IF($B12=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A12,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A12)+2,99),\"P\\s*(\\d+)\"))-1)*$C12+VALUE(REGEXEXTRACT(MID(j,LEN($A12)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E12),ISNA(MATCH(SEQUENCE($E12),u,0))),1),0),IF(n=0,$A12&\" full\",$A12&\" P\"&ROUNDUP(n/$C12,0)&\" S\"&(MOD(n-1,$C12)+1))),IF($B12=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A12,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A12)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E12),ISNA(MATCH(SEQUENCE($E12),u,0))),1),0),IF(n=0,$A12&\" full\",$A12&\" #\"&n)),$A12))))"
+  ],
+  [
+   "=IF($A13=\"\",\"\",IF(OR($B13=\"Binder\",$B13=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A13),SUMIF(Collection!$S$2:$S,$A13,Collection!$G$2:$G)))",
+   "=IF($A13=\"\",\"\",$E13-$I13)",
+   "=IF($A13=\"\",\"\",IF($J13<=0,$A13&\" full\",IF($B13=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A13,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A13)+2,99),\"P\\s*(\\d+)\"))-1)*$C13+VALUE(REGEXEXTRACT(MID(j,LEN($A13)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E13),ISNA(MATCH(SEQUENCE($E13),u,0))),1),0),IF(n=0,$A13&\" full\",$A13&\" P\"&ROUNDUP(n/$C13,0)&\" S\"&(MOD(n-1,$C13)+1))),IF($B13=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A13,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A13)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E13),ISNA(MATCH(SEQUENCE($E13),u,0))),1),0),IF(n=0,$A13&\" full\",$A13&\" #\"&n)),$A13))))"
+  ],
+  [
+   "=IF($A14=\"\",\"\",IF(OR($B14=\"Binder\",$B14=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A14),SUMIF(Collection!$S$2:$S,$A14,Collection!$G$2:$G)))",
+   "=IF($A14=\"\",\"\",$E14-$I14)",
+   "=IF($A14=\"\",\"\",IF($J14<=0,$A14&\" full\",IF($B14=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A14,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A14)+2,99),\"P\\s*(\\d+)\"))-1)*$C14+VALUE(REGEXEXTRACT(MID(j,LEN($A14)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E14),ISNA(MATCH(SEQUENCE($E14),u,0))),1),0),IF(n=0,$A14&\" full\",$A14&\" P\"&ROUNDUP(n/$C14,0)&\" S\"&(MOD(n-1,$C14)+1))),IF($B14=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A14,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A14)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E14),ISNA(MATCH(SEQUENCE($E14),u,0))),1),0),IF(n=0,$A14&\" full\",$A14&\" #\"&n)),$A14))))"
+  ],
+  [
+   "=IF($A15=\"\",\"\",IF(OR($B15=\"Binder\",$B15=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A15),SUMIF(Collection!$S$2:$S,$A15,Collection!$G$2:$G)))",
+   "=IF($A15=\"\",\"\",$E15-$I15)",
+   "=IF($A15=\"\",\"\",IF($J15<=0,$A15&\" full\",IF($B15=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A15,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A15)+2,99),\"P\\s*(\\d+)\"))-1)*$C15+VALUE(REGEXEXTRACT(MID(j,LEN($A15)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E15),ISNA(MATCH(SEQUENCE($E15),u,0))),1),0),IF(n=0,$A15&\" full\",$A15&\" P\"&ROUNDUP(n/$C15,0)&\" S\"&(MOD(n-1,$C15)+1))),IF($B15=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A15,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A15)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E15),ISNA(MATCH(SEQUENCE($E15),u,0))),1),0),IF(n=0,$A15&\" full\",$A15&\" #\"&n)),$A15))))"
+  ],
+  [
+   "=IF($A16=\"\",\"\",IF(OR($B16=\"Binder\",$B16=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A16),SUMIF(Collection!$S$2:$S,$A16,Collection!$G$2:$G)))",
+   "=IF($A16=\"\",\"\",$E16-$I16)",
+   "=IF($A16=\"\",\"\",IF($J16<=0,$A16&\" full\",IF($B16=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A16,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A16)+2,99),\"P\\s*(\\d+)\"))-1)*$C16+VALUE(REGEXEXTRACT(MID(j,LEN($A16)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E16),ISNA(MATCH(SEQUENCE($E16),u,0))),1),0),IF(n=0,$A16&\" full\",$A16&\" P\"&ROUNDUP(n/$C16,0)&\" S\"&(MOD(n-1,$C16)+1))),IF($B16=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A16,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A16)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E16),ISNA(MATCH(SEQUENCE($E16),u,0))),1),0),IF(n=0,$A16&\" full\",$A16&\" #\"&n)),$A16))))"
+  ],
+  [
+   "=IF($A17=\"\",\"\",IF(OR($B17=\"Binder\",$B17=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A17),SUMIF(Collection!$S$2:$S,$A17,Collection!$G$2:$G)))",
+   "=IF($A17=\"\",\"\",$E17-$I17)",
+   "=IF($A17=\"\",\"\",IF($J17<=0,$A17&\" full\",IF($B17=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A17,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A17)+2,99),\"P\\s*(\\d+)\"))-1)*$C17+VALUE(REGEXEXTRACT(MID(j,LEN($A17)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E17),ISNA(MATCH(SEQUENCE($E17),u,0))),1),0),IF(n=0,$A17&\" full\",$A17&\" P\"&ROUNDUP(n/$C17,0)&\" S\"&(MOD(n-1,$C17)+1))),IF($B17=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A17,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A17)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E17),ISNA(MATCH(SEQUENCE($E17),u,0))),1),0),IF(n=0,$A17&\" full\",$A17&\" #\"&n)),$A17))))"
+  ],
+  [
+   "=IF($A18=\"\",\"\",IF(OR($B18=\"Binder\",$B18=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A18),SUMIF(Collection!$S$2:$S,$A18,Collection!$G$2:$G)))",
+   "=IF($A18=\"\",\"\",$E18-$I18)",
+   "=IF($A18=\"\",\"\",IF($J18<=0,$A18&\" full\",IF($B18=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A18,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A18)+2,99),\"P\\s*(\\d+)\"))-1)*$C18+VALUE(REGEXEXTRACT(MID(j,LEN($A18)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E18),ISNA(MATCH(SEQUENCE($E18),u,0))),1),0),IF(n=0,$A18&\" full\",$A18&\" P\"&ROUNDUP(n/$C18,0)&\" S\"&(MOD(n-1,$C18)+1))),IF($B18=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A18,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A18)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E18),ISNA(MATCH(SEQUENCE($E18),u,0))),1),0),IF(n=0,$A18&\" full\",$A18&\" #\"&n)),$A18))))"
+  ],
+  [
+   "=IF($A19=\"\",\"\",IF(OR($B19=\"Binder\",$B19=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A19),SUMIF(Collection!$S$2:$S,$A19,Collection!$G$2:$G)))",
+   "=IF($A19=\"\",\"\",$E19-$I19)",
+   "=IF($A19=\"\",\"\",IF($J19<=0,$A19&\" full\",IF($B19=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A19,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A19)+2,99),\"P\\s*(\\d+)\"))-1)*$C19+VALUE(REGEXEXTRACT(MID(j,LEN($A19)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E19),ISNA(MATCH(SEQUENCE($E19),u,0))),1),0),IF(n=0,$A19&\" full\",$A19&\" P\"&ROUNDUP(n/$C19,0)&\" S\"&(MOD(n-1,$C19)+1))),IF($B19=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A19,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A19)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E19),ISNA(MATCH(SEQUENCE($E19),u,0))),1),0),IF(n=0,$A19&\" full\",$A19&\" #\"&n)),$A19))))"
+  ],
+  [
+   "=IF($A20=\"\",\"\",IF(OR($B20=\"Binder\",$B20=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A20),SUMIF(Collection!$S$2:$S,$A20,Collection!$G$2:$G)))",
+   "=IF($A20=\"\",\"\",$E20-$I20)",
+   "=IF($A20=\"\",\"\",IF($J20<=0,$A20&\" full\",IF($B20=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A20,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A20)+2,99),\"P\\s*(\\d+)\"))-1)*$C20+VALUE(REGEXEXTRACT(MID(j,LEN($A20)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E20),ISNA(MATCH(SEQUENCE($E20),u,0))),1),0),IF(n=0,$A20&\" full\",$A20&\" P\"&ROUNDUP(n/$C20,0)&\" S\"&(MOD(n-1,$C20)+1))),IF($B20=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A20,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A20)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E20),ISNA(MATCH(SEQUENCE($E20),u,0))),1),0),IF(n=0,$A20&\" full\",$A20&\" #\"&n)),$A20))))"
+  ],
+  [
+   "=IF($A21=\"\",\"\",IF(OR($B21=\"Binder\",$B21=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A21),SUMIF(Collection!$S$2:$S,$A21,Collection!$G$2:$G)))",
+   "=IF($A21=\"\",\"\",$E21-$I21)",
+   "=IF($A21=\"\",\"\",IF($J21<=0,$A21&\" full\",IF($B21=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A21,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A21)+2,99),\"P\\s*(\\d+)\"))-1)*$C21+VALUE(REGEXEXTRACT(MID(j,LEN($A21)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E21),ISNA(MATCH(SEQUENCE($E21),u,0))),1),0),IF(n=0,$A21&\" full\",$A21&\" P\"&ROUNDUP(n/$C21,0)&\" S\"&(MOD(n-1,$C21)+1))),IF($B21=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A21,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A21)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E21),ISNA(MATCH(SEQUENCE($E21),u,0))),1),0),IF(n=0,$A21&\" full\",$A21&\" #\"&n)),$A21))))"
+  ],
+  [
+   "=IF($A22=\"\",\"\",IF(OR($B22=\"Binder\",$B22=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A22),SUMIF(Collection!$S$2:$S,$A22,Collection!$G$2:$G)))",
+   "=IF($A22=\"\",\"\",$E22-$I22)",
+   "=IF($A22=\"\",\"\",IF($J22<=0,$A22&\" full\",IF($B22=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A22,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A22)+2,99),\"P\\s*(\\d+)\"))-1)*$C22+VALUE(REGEXEXTRACT(MID(j,LEN($A22)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E22),ISNA(MATCH(SEQUENCE($E22),u,0))),1),0),IF(n=0,$A22&\" full\",$A22&\" P\"&ROUNDUP(n/$C22,0)&\" S\"&(MOD(n-1,$C22)+1))),IF($B22=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A22,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A22)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E22),ISNA(MATCH(SEQUENCE($E22),u,0))),1),0),IF(n=0,$A22&\" full\",$A22&\" #\"&n)),$A22))))"
+  ],
+  [
+   "=IF($A23=\"\",\"\",IF(OR($B23=\"Binder\",$B23=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A23),SUMIF(Collection!$S$2:$S,$A23,Collection!$G$2:$G)))",
+   "=IF($A23=\"\",\"\",$E23-$I23)",
+   "=IF($A23=\"\",\"\",IF($J23<=0,$A23&\" full\",IF($B23=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A23,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A23)+2,99),\"P\\s*(\\d+)\"))-1)*$C23+VALUE(REGEXEXTRACT(MID(j,LEN($A23)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E23),ISNA(MATCH(SEQUENCE($E23),u,0))),1),0),IF(n=0,$A23&\" full\",$A23&\" P\"&ROUNDUP(n/$C23,0)&\" S\"&(MOD(n-1,$C23)+1))),IF($B23=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A23,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A23)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E23),ISNA(MATCH(SEQUENCE($E23),u,0))),1),0),IF(n=0,$A23&\" full\",$A23&\" #\"&n)),$A23))))"
+  ],
+  [
+   "=IF($A24=\"\",\"\",IF(OR($B24=\"Binder\",$B24=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A24),SUMIF(Collection!$S$2:$S,$A24,Collection!$G$2:$G)))",
+   "=IF($A24=\"\",\"\",$E24-$I24)",
+   "=IF($A24=\"\",\"\",IF($J24<=0,$A24&\" full\",IF($B24=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A24,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A24)+2,99),\"P\\s*(\\d+)\"))-1)*$C24+VALUE(REGEXEXTRACT(MID(j,LEN($A24)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E24),ISNA(MATCH(SEQUENCE($E24),u,0))),1),0),IF(n=0,$A24&\" full\",$A24&\" P\"&ROUNDUP(n/$C24,0)&\" S\"&(MOD(n-1,$C24)+1))),IF($B24=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A24,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A24)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E24),ISNA(MATCH(SEQUENCE($E24),u,0))),1),0),IF(n=0,$A24&\" full\",$A24&\" #\"&n)),$A24))))"
+  ],
+  [
+   "=IF($A25=\"\",\"\",IF(OR($B25=\"Binder\",$B25=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A25),SUMIF(Collection!$S$2:$S,$A25,Collection!$G$2:$G)))",
+   "=IF($A25=\"\",\"\",$E25-$I25)",
+   "=IF($A25=\"\",\"\",IF($J25<=0,$A25&\" full\",IF($B25=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A25,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A25)+2,99),\"P\\s*(\\d+)\"))-1)*$C25+VALUE(REGEXEXTRACT(MID(j,LEN($A25)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E25),ISNA(MATCH(SEQUENCE($E25),u,0))),1),0),IF(n=0,$A25&\" full\",$A25&\" P\"&ROUNDUP(n/$C25,0)&\" S\"&(MOD(n-1,$C25)+1))),IF($B25=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A25,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A25)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E25),ISNA(MATCH(SEQUENCE($E25),u,0))),1),0),IF(n=0,$A25&\" full\",$A25&\" #\"&n)),$A25))))"
+  ],
+  [
+   "=IF($A26=\"\",\"\",IF(OR($B26=\"Binder\",$B26=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A26),SUMIF(Collection!$S$2:$S,$A26,Collection!$G$2:$G)))",
+   "=IF($A26=\"\",\"\",$E26-$I26)",
+   "=IF($A26=\"\",\"\",IF($J26<=0,$A26&\" full\",IF($B26=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A26,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A26)+2,99),\"P\\s*(\\d+)\"))-1)*$C26+VALUE(REGEXEXTRACT(MID(j,LEN($A26)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E26),ISNA(MATCH(SEQUENCE($E26),u,0))),1),0),IF(n=0,$A26&\" full\",$A26&\" P\"&ROUNDUP(n/$C26,0)&\" S\"&(MOD(n-1,$C26)+1))),IF($B26=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A26,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A26)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E26),ISNA(MATCH(SEQUENCE($E26),u,0))),1),0),IF(n=0,$A26&\" full\",$A26&\" #\"&n)),$A26))))"
+  ],
+  [
+   "=IF($A27=\"\",\"\",IF(OR($B27=\"Binder\",$B27=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A27),SUMIF(Collection!$S$2:$S,$A27,Collection!$G$2:$G)))",
+   "=IF($A27=\"\",\"\",$E27-$I27)",
+   "=IF($A27=\"\",\"\",IF($J27<=0,$A27&\" full\",IF($B27=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A27,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A27)+2,99),\"P\\s*(\\d+)\"))-1)*$C27+VALUE(REGEXEXTRACT(MID(j,LEN($A27)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E27),ISNA(MATCH(SEQUENCE($E27),u,0))),1),0),IF(n=0,$A27&\" full\",$A27&\" P\"&ROUNDUP(n/$C27,0)&\" S\"&(MOD(n-1,$C27)+1))),IF($B27=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A27,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A27)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E27),ISNA(MATCH(SEQUENCE($E27),u,0))),1),0),IF(n=0,$A27&\" full\",$A27&\" #\"&n)),$A27))))"
+  ],
+  [
+   "=IF($A28=\"\",\"\",IF(OR($B28=\"Binder\",$B28=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A28),SUMIF(Collection!$S$2:$S,$A28,Collection!$G$2:$G)))",
+   "=IF($A28=\"\",\"\",$E28-$I28)",
+   "=IF($A28=\"\",\"\",IF($J28<=0,$A28&\" full\",IF($B28=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A28,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A28)+2,99),\"P\\s*(\\d+)\"))-1)*$C28+VALUE(REGEXEXTRACT(MID(j,LEN($A28)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E28),ISNA(MATCH(SEQUENCE($E28),u,0))),1),0),IF(n=0,$A28&\" full\",$A28&\" P\"&ROUNDUP(n/$C28,0)&\" S\"&(MOD(n-1,$C28)+1))),IF($B28=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A28,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A28)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E28),ISNA(MATCH(SEQUENCE($E28),u,0))),1),0),IF(n=0,$A28&\" full\",$A28&\" #\"&n)),$A28))))"
+  ],
+  [
+   "=IF($A29=\"\",\"\",IF(OR($B29=\"Binder\",$B29=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A29),SUMIF(Collection!$S$2:$S,$A29,Collection!$G$2:$G)))",
+   "=IF($A29=\"\",\"\",$E29-$I29)",
+   "=IF($A29=\"\",\"\",IF($J29<=0,$A29&\" full\",IF($B29=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A29,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A29)+2,99),\"P\\s*(\\d+)\"))-1)*$C29+VALUE(REGEXEXTRACT(MID(j,LEN($A29)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E29),ISNA(MATCH(SEQUENCE($E29),u,0))),1),0),IF(n=0,$A29&\" full\",$A29&\" P\"&ROUNDUP(n/$C29,0)&\" S\"&(MOD(n-1,$C29)+1))),IF($B29=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A29,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A29)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E29),ISNA(MATCH(SEQUENCE($E29),u,0))),1),0),IF(n=0,$A29&\" full\",$A29&\" #\"&n)),$A29))))"
+  ],
+  [
+   "=IF($A30=\"\",\"\",IF(OR($B30=\"Binder\",$B30=\"Top loaders\"),COUNTIF(Collection!$S$2:$S,$A30),SUMIF(Collection!$S$2:$S,$A30,Collection!$G$2:$G)))",
+   "=IF($A30=\"\",\"\",$E30-$I30)",
+   "=IF($A30=\"\",\"\",IF($J30<=0,$A30&\" full\",IF($B30=\"Binder\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A30,0,IFERROR((VALUE(REGEXEXTRACT(MID(j,LEN($A30)+2,99),\"P\\s*(\\d+)\"))-1)*$C30+VALUE(REGEXEXTRACT(MID(j,LEN($A30)+2,99),\"S\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E30),ISNA(MATCH(SEQUENCE($E30),u,0))),1),0),IF(n=0,$A30&\" full\",$A30&\" P\"&ROUNDUP(n/$C30,0)&\" S\"&(MOD(n-1,$C30)+1))),IF($B30=\"Top loaders\",LET(u,MAP(Collection!$J$2:$J,Collection!$S$2:$S,LAMBDA(j,s,IF(s<>$A30,0,IFERROR(VALUE(REGEXEXTRACT(MID(j,LEN($A30)+2,99),\"#\\s*(\\d+)\")),0)))),n,IFERROR(INDEX(FILTER(SEQUENCE($E30),ISNA(MATCH(SEQUENCE($E30),u,0))),1),0),IF(n=0,$A30&\" full\",$A30&\" #\"&n)),$A30))))"
+  ]
+ ]
+}

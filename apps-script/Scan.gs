@@ -25,10 +25,9 @@ const SCAN_EFFORT = 'medium';
 const SCAN_PRICE = {input: 2, output: 10};   // $ per million tokens for SCAN_MODEL, for the cost note in the app
 const SCAN_TCG = 'https://api.tcgdex.net/v2/en';
 const SCAN_TZ = 'America/Chicago';
-const SCAN_BINDER_SLOTS = 360;
 
 /* ---------- web entry ---------- */
-// The app POSTs JSON as plain text: {action:"check"|"identify"|"lookup"|"add"|"bulk"|"remove", pass, ...}
+// The app POSTs JSON as plain text: {action:"check"|"identify"|"lookup"|"add"|"bulk"|"remove"|"move"|"units", pass, ...}
 function doPost(e) {
   let out;
   try {
@@ -40,6 +39,8 @@ function doPost(e) {
     else if (req.action === 'add') out = scanAdd_(req.cards, req.batch);
     else if (req.action === 'bulk') out = scanBulkOnly_(req.entries, req.batch);
     else if (req.action === 'remove') out = scanRemove_(req.item, req.qty, req.batch, req.why);
+    else if (req.action === 'move') out = scanMove_(req.item, req.to, req.keep);
+    else if (req.action === 'units') out = scanSaveUnits_(req.units, req.renames);
     else throw new Error('Unknown request.');
   } catch (err) {
     out = {error: String((err && err.message) || err), code: (err && err.code) || ''};
@@ -520,9 +521,18 @@ function scanWebQuestion_(c) {
 }
 
 function scanWebCheck_(items) {
-  if (!items.length) return 0;
+  return scanWebAsk_(items.map(c => ({
+    system: c.kind === 'sealed' ? SCAN_SEALED_SYSTEM : SCAN_CARD_SYSTEM,
+    question: scanWebQuestion_(c),
+    done: content => { const ans = scanWebAnswer_(content); if (ans) (c.kind === 'sealed' ? scanWebSealed_ : scanWebCard_)(c, ans); }
+  })));
+}
+
+// Sends each job ({system, question, done(content)}) to Haiku with web search, all at once, and returns the cost in dollars.
+function scanWebAsk_(jobs) {
+  if (!jobs.length) return 0;
   const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  const request = (c, messages) => ({
+  const request = (j, messages) => ({
     url: 'https://api.anthropic.com/v1/messages',
     method: 'post',
     contentType: 'application/json',
@@ -530,7 +540,7 @@ function scanWebCheck_(items) {
     payload: JSON.stringify({
       model: SCAN_WEB_MODEL,
       max_tokens: 4000,
-      system: c.kind === 'sealed' ? SCAN_SEALED_SYSTEM : SCAN_CARD_SYSTEM,
+      system: j.system,
       output_config: {effort: SCAN_WEB_EFFORT},
       tools: [{type: 'web_search_20250305', name: 'web_search', max_uses: 3,
         user_location: {type: 'approximate', country: 'US', timezone: SCAN_TZ}}],
@@ -539,11 +549,11 @@ function scanWebCheck_(items) {
     muteHttpExceptions: true
   });
   let cost = 0;
-  let pending = items.map(c => ({c: c, messages: [{role: 'user', content: scanWebQuestion_(c)}]}));
+  let pending = jobs.map(j => ({j: j, messages: [{role: 'user', content: j.question}]}));
   // A long search can pause partway ("pause_turn"); sending the answer so far back lets it finish.
   for (let round = 0; round < 3 && pending.length; round++) {
     let res;
-    try { res = UrlFetchApp.fetchAll(pending.map(p => request(p.c, p.messages))); } catch (e) { break; }
+    try { res = UrlFetchApp.fetchAll(pending.map(p => request(p.j, p.messages))); } catch (e) { break; }
     const again = [];
     res.forEach((r, i) => {
       if (r.getResponseCode() !== 200) return;
@@ -559,8 +569,7 @@ function scanWebCheck_(items) {
         again.push(p);
         return;
       }
-      const ans = scanWebAnswer_(data.content);
-      if (ans) (p.c.kind === 'sealed' ? scanWebSealed_ : scanWebCard_)(p.c, ans);
+      p.j.done(data.content);
     });
     pending = again;
   }
@@ -633,48 +642,29 @@ function scanAdd_(cards, batch) {
     const ss = SpreadsheetApp.openById(scanSheetId_());
     const col = ss.getSheetByName('Collection');
     if (!col) throw new Error('The sheet has no Collection tab.');
-    const used = scanUsedSpots_(col);
+    const units = scanUnits_(ss), use = scanUsage_(col, units);
     const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
 
-    // Work out every row first, so nothing is written if the binder is full.
-    const rows = [], grading = [], added = [], bulk = [];
+    // Work out every row first, so nothing is written if a card has nowhere to go.
+    const rows = [], grading = [], added = [], bulk = [], touched = {};
     for (const c of clean) {
       if (c.bulk) { bulk.push({set: c.set, kind: c.bulkKind, qty: c.qty, mode: 'add', fromScan: true}); continue; }
       const base = [c.name, c.set, c.number, c.rarity, c.category, c.condition];
-      const push = (qty, loc, prot, action) => {
-        rows.push(base.concat([qty, c.price, date, loc, prot]));
-        added.push({name: c.name, set: c.set, number: c.number, price: c.price, qty: qty, loc: loc, action: action});
-      };
-      if (c.category === 'Sealed') { push(c.qty, 'Sealed Shelf', 'Sealed', 'Sealed shelf'); continue; }
-      if (c.price >= 20) {
-        for (let i = 0; i < c.qty; i++) {
-          const n = scanFree_(used.buffer);
-          used.buffer[n] = true;
-          const loc = 'Buffer #' + n;
-          push(1, loc, 'Penny sleeve + top loader', 'Penny sleeve + 35pt top loader → bulk box Row 1 front, ' + loc);
-          grading.push([c.name, c.set, c.number, c.price]);
-        }
-        continue;
+      // Binder pockets and top loaders hold one card each, so each copy gets its own row.
+      const copies = scanMatches_(units, c).some(u => u.type === 'Binder' || u.type === 'Top loaders') ? c.qty : 1;
+      for (let i = 0; i < copies; i++) {
+        const qty = copies > 1 ? 1 : c.qty;
+        const spot = scanPlace_(Object.assign({}, c, {qty: qty}), units, use);
+        touched[spot.unit.label] = spot.unit;
+        rows.push(base.concat([qty, c.price, date, spot.loc, spot.prot]));
+        added.push({name: c.name, set: c.set, number: c.number, price: c.price, qty: qty, loc: spot.loc, action: spot.action});
+        if (spot.unit.type === 'Top loaders') grading.push([c.name, c.set, c.number, c.price]);
       }
-      if (c.price >= 2) {
-        for (let i = 0; i < c.qty; i++) {
-          const n = scanFree_(used.binder);
-          if (n > SCAN_BINDER_SLOTS) throw new Error('The binder is full (360 slots). Nothing was added. Decide where overflow cards go, then try again.');
-          used.binder[n] = true;
-          const loc = scanBinderLoc_(n);
-          push(1, loc, 'Penny sleeve + binder pocket', 'Penny sleeve → ' + loc);
-        }
-        continue;
-      }
-      if (c.foil) push(c.qty, 'Bulk Row 1 Back – ' + c.set, 'Penny sleeve', 'Penny sleeve → bulk box Row 1 back, behind the ' + c.set + ' divider');
-      else if (c.category === 'Trainer') push(c.qty, 'Bulk Row 3 – Trainers', 'Raw (no sleeve)', 'No sleeve → bulk box Row 3, Trainers');
-      else if (c.category === 'Energy' && c.basicEnergy) push(c.qty, 'Bulk Row 3 – Basic Energy', 'Raw (no sleeve)', 'No sleeve → bulk box Row 3, Basic Energy');
-      else push(c.qty, 'Bulk Row 2 – ' + c.set, 'Raw (no sleeve)', 'No sleeve → bulk box Row 2, behind the ' + c.set + ' divider');
     }
 
     const r0 = scanFirstEmptyRow_(col);
     scanWriteRows_(col, r0, rows, {numCol: 3, dateCol: 9});
-    for (const b of scanBulk_(col, bulk, date)) added.push(b);
+    for (const b of scanBulk_(col, bulk, date, units)) added.push(b);
     if (grading.length) {
       const g = ss.getSheetByName('Grading');
       if (g) scanWriteRows_(g, scanFirstEmptyRow_(g), grading, {numCol: 3});
@@ -683,7 +673,7 @@ function scanAdd_(cards, batch) {
     const out = {
       added: added,
       grading: grading.length,
-      next: scanNextText_(used)
+      next: Object.keys(touched).filter(k => touched[k].type === 'Binder' || touched[k].type === 'Top loaders').map(k => ({label: k, loc: scanNext_(touched[k], use)}))
     };
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
     return out;
@@ -722,14 +712,16 @@ function scanClean_(c) {
 
 /* ---------- bulk counts ---------- */
 // One count row per set and type, written the same way as the rows already in the sheet.
+// row/loc is the spot inside a bulk box; the box's label goes in front ("Bulk" + " Row 2 – Journey Together").
 const SCAN_BULK = {
-  nonfoil: {label: 'non-foil bulk', rarity: 'Common/Uncommon', cat: 'Mixed', row: 'Bulk Row 2', price: 0.15},
-  reverse: {label: 'reverse holo bulk', rarity: 'Common/Uncommon (Reverse Holo)', cat: 'Mixed', row: 'Bulk Row 1 Back', price: 0.25},
-  holo: {label: 'holo rare bulk', rarity: 'Rare (Holo)', cat: 'Pokémon', row: 'Bulk Row 1 Back', price: 0.20},
-  trainer: {label: 'trainer bulk', rarity: 'Common/Uncommon', cat: 'Trainer', loc: 'Bulk Row 3 – Trainers', price: 0.10},
-  energy: {label: 'basic energy', rarity: 'Common', cat: 'Energy', loc: 'Bulk Row 3 – Basic Energy', price: 0.05}
+  nonfoil: {label: 'non-foil bulk', rarity: 'Common/Uncommon', cat: 'Mixed', row: 'Row 2', price: 0.15},
+  reverse: {label: 'reverse holo bulk', rarity: 'Common/Uncommon (Reverse Holo)', cat: 'Mixed', row: 'Row 1 Back', price: 0.25},
+  holo: {label: 'holo rare bulk', rarity: 'Rare (Holo)', cat: 'Pokémon', row: 'Row 1 Back', price: 0.20},
+  trainer: {label: 'trainer bulk', rarity: 'Common/Uncommon', cat: 'Trainer', loc: 'Row 3 – Trainers', price: 0.10},
+  energy: {label: 'basic energy', rarity: 'Common', cat: 'Energy', loc: 'Row 3 – Basic Energy', price: 0.05}
 };
-function scanBulkRow_(set, kind) {
+// box: the bulk box label, left out when only checking the line.
+function scanBulkRow_(set, kind, box) {
   const k = SCAN_BULK[kind];
   if (!k) throw new Error('Unknown bulk type.');
   // Trainers and basic Energy share one row each (Bulk Row 3 has no set dividers); the others are per set.
@@ -737,25 +729,30 @@ function scanBulkRow_(set, kind) {
   const mixed = !set || /^mixed$/i.test(set);
   if (mixed && !k.loc) throw new Error('Pick a set for the ' + k.label + ' count.');
   const name = kind === 'energy' ? 'Basic Energy (count)' : kind === 'trainer' ? 'Trainer bulk (count)' : set + ' ' + k.label + ' (count)';
-  return {name: name, set: mixed ? 'Mixed' : set, kind: kind, k: k, loc: k.loc || (k.row + ' – ' + set)};
+  return {name: name, set: mixed ? 'Mixed' : set, kind: kind, k: k, loc: box + ' ' + (k.loc || (k.row + ' – ' + set))};
 }
 
 // entries: [{set, kind, qty, mode:"add"|"set", price?}] → adds to (or sets) the matching count row, or starts one.
-function scanBulk_(col, entries, date) {
+function scanBulk_(col, entries, date, units) {
   if (!entries || !entries.length) return [];
   const last = scanFirstEmptyRow_(col) - 1;
-  const vals = last >= 2 ? col.getRange(2, 1, last - 1, 8).getDisplayValues() : [];
+  const vals = last >= 2 ? col.getRange(2, 1, last - 1, 10).getDisplayValues() : [];
   const where = {};
-  vals.forEach((r, i) => { const k = scanNorm_(r[0]); if (k && /\(count\)/i.test(r[0]) && !(k in where)) where[k] = {row: i + 2, qty: Number(String(r[6]).replace(/[^0-9.-]/g, '')) || 0}; });
+  vals.forEach((r, i) => { const k = scanNorm_(r[0]); if (k && /\(count\)/i.test(r[0]) && !(k in where)) where[k] = {row: i + 2, qty: Number(String(r[6]).replace(/[^0-9.-]/g, '')) || 0, loc: r[9]}; });
   let next = last + 1;
-  const out = [];
+  const out = [], use = scanUsage_(col, units);
   for (const e of entries) {
-    const b = scanBulkRow_(e.set, e.kind);
+    const k = SCAN_BULK[e.kind] || {};
+    const b0 = scanBulkRow_(e.set, e.kind, '');
     const qty = Math.max(0, Math.min(9999, Math.round(Number(e.qty) || 0)));
     const mode = e.mode === 'set' ? 'set' : 'add';
     if (mode === 'add' && !qty) continue;
     const price = e.price === '' || e.price == null || !isFinite(Number(e.price)) ? null : Math.round(Number(e.price) * 100) / 100;
-    const key = scanNorm_(b.name), hit = where[key];
+    const key = scanNorm_(b0.name), hit = where[key];
+    // A count row stays in its box; a new one goes to the best-fitting bulk box with room.
+    const box = hit ? null : scanBulkBox_(units, {category: k.cat, set: k.loc ? '' : e.set, price: k.price}, use, qty);
+    const b = box ? scanBulkRow_(e.set, e.kind, box.label) : b0;
+    if (box) use[box.label].qty += qty;
     let now;
     if (hit) {
       now = mode === 'set' ? qty : hit.qty + qty;
@@ -769,8 +766,8 @@ function scanBulk_(col, entries, date) {
       where[key] = {row: next, qty: now};
       next++;
     }
-    out.push({name: b.name, set: b.set, number: 'Mixed', price: price != null && !e.fromScan ? price : b.k.price, qty: qty, loc: b.loc, bulk: true,
-      action: (b.k.loc ? 'No sleeve → ' + b.loc : 'Into the ' + b.set + ' ' + b.k.label + ' → ' + b.loc) + ' · count ' + (hit ? 'now ' : 'started at ') + now});
+    out.push({name: b.name, set: b.set, number: 'Mixed', price: price != null && !e.fromScan ? price : b.k.price, qty: qty, loc: hit ? hit.loc : b.loc, bulk: true,
+      action: (b.k.loc ? 'No sleeve → ' + (hit ? hit.loc : b.loc) : 'Into the ' + b.set + ' ' + b.k.label + ' → ' + (hit ? hit.loc : b.loc)) + ' · count ' + (hit ? 'now ' : 'started at ') + now});
   }
   return out;
 }
@@ -788,7 +785,7 @@ function scanBulkOnly_(entries, batch) {
     const col = ss.getSheetByName('Collection');
     if (!col) throw new Error('The sheet has no Collection tab.');
     const date = Utilities.formatDate(new Date(), SCAN_TZ, 'yyyy-MM-dd');
-    const added = scanBulk_(col, entries, date);
+    const added = scanBulk_(col, entries, date, scanUnits_(ss));
     SpreadsheetApp.flush();
     const out = {added: added, grading: 0, bulkOnly: true};
     if (batch) { try { cache.put('scan-batch-' + batch, JSON.stringify(out), 3600); } catch (e) {} }
@@ -834,9 +831,10 @@ function scanRemove_(item, qty, batch, why) {
     if (n < have) {
       col.getRange(row, 7).setValue(have - n);
     } else {
-      scanShiftUp_(col, row, last, [[1, 11], [17, 1]]); // A–K and Q (Paid Each) inputs
+      scanShiftUp_(col, row, last, [[1, 11], [17, 2]]); // A–K, Q (Paid Each) and R (Keep Here) inputs
       // Its Grading row goes too, unless another copy of the card is still in a top loader.
-      if (/^Buffer/i.test(want[3]) && !vals.some((r, k) => k !== i && /^Buffer/i.test(r[9]) && [r[0], r[1], r[2]].every((v, j) => String(v).trim() === want[j]))) {
+      const units = scanUnits_(ss), top = loc => { const u = scanUnitOf_(units, loc); return !!u && u.type === 'Top loaders'; };
+      if (top(want[3]) && !vals.some((r, k) => k !== i && top(r[9]) && [r[0], r[1], r[2]].every((v, j) => String(v).trim() === want[j]))) {
         const g = ss.getSheetByName('Grading');
         const gLast = g ? scanFirstEmptyRow_(g) - 1 : 1;
         const gVals = gLast >= 2 ? g.getRange(2, 1, gLast - 1, 3).getDisplayValues() : [];
@@ -873,28 +871,7 @@ function scanShiftUp_(sh, row, last, blocks) {
   }
 }
 
-// Binder slots (1–360) and buffer numbers in use, read from the Location column. A removed card leaves a gap,
-// and the lowest open number is used first, so nothing is ever filed into a slot that's taken.
-function scanUsedSpots_(col) {
-  const last = scanFirstEmptyRow_(col) - 1;
-  const locs = last >= 2 ? col.getRange(2, 10, last - 1, 1).getDisplayValues() : [];
-  const used = {binder: {}, buffer: {}};
-  for (const [loc] of locs) {
-    const b = String(loc).match(/^Binder P\s*(\d+)\s*S\s*(\d+)/i);
-    if (b) used.binder[(+b[1] - 1) * 9 + +b[2]] = true;
-    const t = String(loc).match(/^Buffer #\s*(\d+)/i);
-    if (t) used.buffer[+t[1]] = true;
-  }
-  return used;
-}
-const scanFree_ = taken => { let n = 1; while (taken[n]) n++; return n; };
-const scanBinderLoc_ = n => 'Binder P' + Math.ceil(n / 9) + ' S' + (((n - 1) % 9) + 1);
-function scanNextText_(used) {
-  const n = scanFree_(used.binder);
-  return {binder: n > SCAN_BINDER_SLOTS ? 'Binder full' : scanBinderLoc_(n), buffer: 'Buffer #' + scanFree_(used.buffer)};
-}
-
-// First row after the last filled cell in column A (the formula columns are pre-filled further down).
+// First row after the last filled cell in column A.
 function scanFirstEmptyRow_(sh) {
   const last = sh.getLastRow();
   if (last < 2) return 2;
@@ -911,4 +888,257 @@ function scanWriteRows_(sh, r0, rows, opts) {
   if (opts.numCol) sh.getRange(r0, opts.numCol, rows.length, 1).setNumberFormat('@'); // keeps "053/159" from turning into a date
   if (opts.dateCol) sh.getRange(r0, opts.dateCol, rows.length, 1).setNumberFormat('yyyy-mm-dd');
   sh.getRange(r0, 1, rows.length, rows[0].length).setValues(rows);
+}
+
+/* ---------- storage units ---------- */
+// The Storage tab lists every binder, top loader box, bulk box and sealed shelf, one per row (rows 2–30):
+//   A Label · B Type · C Pockets per page · D Pages · E Capacity · F Job: set · G Job: min $ · H Job: max $
+//   (I In use · J Open · K Next open spot are formulas.)
+// A card's location is its unit's label plus its spot: "<label> P2 S5" (binder), "<label> #7" (top loaders),
+// "<label> Row 2 – <set>" (bulk box) or just "<label>" (sealed). A new card goes to the unit whose job fits it best:
+// a set job beats a price job, which beats no job, and a higher row wins a tie. A full unit passes to the next one.
+// The Collection tab's M–P formulas use the same rules (keep scanFits_ and those formulas in step).
+const SCAN_TYPES = ['Binder', 'Top loaders', 'Bulk box', 'Sealed'];
+const SCAN_UNIT_ROWS = 29;
+const SCAN_PROT = {Binder: 'Penny sleeve + binder pocket', 'Top loaders': 'Penny sleeve + top loader', Sealed: 'Sealed'};
+
+function scanUnits_(ss) {
+  const st = ss.getSheetByName('Storage');
+  if (!st) throw new Error('The sheet has no Storage tab.');
+  const num = v => (v === '' || v == null || !isFinite(Number(v)) ? null : Number(v));
+  return st.getRange(2, 1, SCAN_UNIT_ROWS, 8).getValues()
+    .map(r => ({label: String(r[0]).trim(), type: String(r[1]).trim(), pockets: num(r[2]) || 9, pages: num(r[3]) || 0,
+      cap: num(r[4]) || 0, set: String(r[5]).trim(), min: num(r[6]), max: num(r[7])}))
+    .filter(u => u.label && SCAN_TYPES.indexOf(u.type) >= 0);
+}
+const scanSameSet_ = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+function scanFits_(u, c) {
+  if ((c.category === 'Sealed') !== (u.type === 'Sealed')) return false;
+  if (u.set && !scanSameSet_(u.set, c.set)) return false;
+  if (u.min != null && !(c.price >= u.min)) return false;
+  if (u.max != null && !(c.price <= u.max)) return false;
+  return true;
+}
+// Units whose job fits the card, best first.
+function scanMatches_(units, c) {
+  return units.map((u, i) => ({u: u, s: (u.set ? 100 : 0) + ((u.min != null) + (u.max != null)) * 10 - i / 100}))
+    .filter(x => scanFits_(x.u, c)).sort((a, b) => b.s - a.s).map(x => x.u);
+}
+// The unit a location belongs to: the longest label it starts with.
+function scanUnitOf_(units, loc) {
+  loc = String(loc || '').trim();
+  return units.filter(u => loc === u.label || loc.indexOf(u.label + ' ') === 0).sort((a, b) => b.label.length - a.label.length)[0] || null;
+}
+// What's in each unit now: binder slots and top loader numbers taken, and how many cards or items are inside.
+function scanUsage_(col, units) {
+  const use = {};
+  units.forEach(u => { use[u.label] = {slots: {}, qty: 0}; });
+  const last = scanFirstEmptyRow_(col) - 1;
+  const rows = last >= 2 ? col.getRange(2, 7, last - 1, 4).getDisplayValues() : [];
+  for (const r of rows) {
+    const u = scanUnitOf_(units, r[3]);
+    if (!u) continue;
+    const x = use[u.label], rest = String(r[3]).trim().slice(u.label.length);
+    x.qty += Number(String(r[0]).replace(/[^0-9.]/g, '')) || 1;
+    const n = scanSlotOf_(u, rest);
+    if (n) x.slots[n] = true;
+  }
+  return use;
+}
+// Slot number from the part after the label: " P2 S5" → 14 in a 9-pocket binder, " #7" → 7.
+function scanSlotOf_(u, rest) {
+  if (u.type === 'Binder') { const m = rest.match(/^\s*P\s*(\d+)\s*S\s*(\d+)\s*$/i); return m ? (+m[1] - 1) * u.pockets + +m[2] : 0; }
+  if (u.type === 'Top loaders') { const m = rest.match(/^\s*#\s*(\d+)\s*$/); return m ? +m[1] : 0; }
+  return 0;
+}
+const scanFree_ = taken => { let n = 1; while (taken[n]) n++; return n; };
+const scanSlotText_ = (u, n) => u.type === 'Binder' ? u.label + ' P' + Math.ceil(n / u.pockets) + ' S' + (((n - 1) % u.pockets) + 1) : u.label + ' #' + n;
+// The spot inside a bulk box for a card or item.
+function scanBulkSpot_(c) {
+  if (c.foil) return {row: 'Row 1 Back – ' + c.set, prot: 'Penny sleeve', how: 'Penny sleeve → '};
+  if (c.category === 'Trainer') return {row: 'Row 3 – Trainers', prot: 'Raw (no sleeve)', how: 'No sleeve → '};
+  if (c.category === 'Energy' && c.basicEnergy) return {row: 'Row 3 – Basic Energy', prot: 'Raw (no sleeve)', how: 'No sleeve → '};
+  return {row: 'Row 2 – ' + c.set, prot: 'Raw (no sleeve)', how: 'No sleeve → '};
+}
+// Picks the unit and spot for one row (a binder or top loader row is one card) and marks it taken in `use`.
+function scanPlace_(c, units, use) {
+  const fits = scanMatches_(units, c);
+  if (!fits.length) throw new Error('No storage has a job that fits ' + c.name + ' ($' + c.price + '). Nothing was added. Add a unit or change a job on the Storage tab.');
+  for (const u of fits) {
+    const x = use[u.label];
+    if (u.type === 'Binder' || u.type === 'Top loaders') {
+      const n = scanFree_(x.slots);
+      if (n > u.cap) continue;
+      x.slots[n] = true; x.qty += 1;
+      const loc = scanSlotText_(u, n);
+      return {unit: u, loc: loc, prot: SCAN_PROT[u.type], action: (u.type === 'Binder' ? 'Penny sleeve → ' : 'Penny sleeve + 35pt top loader → ') + loc};
+    }
+    if (x.qty + c.qty > u.cap) continue;
+    x.qty += c.qty;
+    if (u.type === 'Sealed') return {unit: u, loc: u.label, prot: 'Sealed', action: 'Sealed → ' + u.label};
+    const b = scanBulkSpot_(c);
+    return {unit: u, loc: u.label + ' ' + b.row, prot: b.prot, action: b.how + u.label + ' ' + b.row};
+  }
+  throw new Error('Every unit whose job fits ' + c.name + ' is full. Nothing was added. Add a unit or make one bigger on the Storage tab.');
+}
+// The bulk box for a new count row: the best-fitting bulk box with room, otherwise any bulk box with room.
+function scanBulkBox_(units, c, use, qty) {
+  const room = u => u.type === 'Bulk box' && use[u.label].qty + qty <= u.cap;
+  const box = scanMatches_(units, c).find(room) || units.find(room);
+  if (!box) throw new Error(units.some(u => u.type === 'Bulk box') ? 'Every bulk box is full. Add one or make one bigger on the Storage tab.' : 'Add a bulk box on the Storage tab first.');
+  return box;
+}
+// Next open pocket or number in a binder or top loader box.
+function scanNext_(u, use) {
+  const n = scanFree_(use[u.label].slots);
+  return n > u.cap ? u.label + ' full' : scanSlotText_(u, n);
+}
+
+/* ---------- move a card ---------- */
+// item: the row as the app shows it ({name, set, number, loc}). to: {label, spot} where spot is optional:
+// "P2 S5" or "#7" for a chosen pocket or number (otherwise the next open one), or a bulk row such as "Row 2 – <set>".
+// to: null with keep: true just marks the card as staying where it is. keep marks the row so the status shows it was your choice.
+function scanMove_(item, to, keep) {
+  item = item || {};
+  const want = [item.name, item.set, item.number, item.loc].map(v => String(v == null ? '' : v).trim());
+  if (!want[0]) throw new Error('Nothing to move.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(scanSheetId_());
+    const col = ss.getSheetByName('Collection');
+    const last = scanFirstEmptyRow_(col) - 1;
+    const vals = last >= 2 ? col.getRange(2, 1, last - 1, 11).getDisplayValues() : [];
+    const i = vals.findIndex(r => [r[0], r[1], r[2], r[9]].every((v, k) => String(v).trim() === want[k]));
+    if (i < 0) throw new Error(want[0] + ' isn\'t in the sheet any more. Refresh the app and try again.');
+    const row = i + 2, r = vals[i];
+    if (!to) {
+      col.getRange(row, 18).setValue(keep ? true : '');
+      SpreadsheetApp.flush();
+      return {name: want[0], loc: want[3], keep: !!keep};
+    }
+    const units = scanUnits_(ss), u = units.find(x => x.label === String(to.label || '').trim());
+    if (!u) throw new Error('There\'s no storage called "' + to.label + '". Refresh the app and try again.');
+    const qty = Number(String(r[6]).replace(/[^0-9.]/g, '')) || 1;
+    if ((r[4] === 'Sealed') !== (u.type === 'Sealed')) throw new Error(u.type === 'Sealed' ? 'Only sealed product goes on a sealed shelf.' : 'Sealed product goes on a sealed shelf.');
+    if ((u.type === 'Binder' || u.type === 'Top loaders') && qty > 1) throw new Error('This row has ' + qty + ' copies. A ' + (u.type === 'Binder' ? 'binder pocket' : 'top loader') + ' holds one card: lower the Qty to 1 first, or move them into a bulk box.');
+    const use = scanUsage_(col, units), cur = scanUnitOf_(units, want[3]);
+    if (cur) { const n = scanSlotOf_(cur, want[3].slice(cur.label.length)); if (n && cur.label === u.label) delete use[u.label].slots[n]; if (cur.label === u.label) use[u.label].qty -= qty; }
+    const spot = String(to.spot || '').trim();
+    let loc, prot = SCAN_PROT[u.type] || '';
+    if (u.type === 'Binder' || u.type === 'Top loaders') {
+      let n;
+      if (spot) {
+        n = scanSlotOf_(u, ' ' + spot);
+        if (!n || n > u.cap) throw new Error((u.type === 'Binder' ? 'Pick a page and pocket inside ' : 'Pick a number from 1 to ' + u.cap + ' in ') + u.label + '.');
+        if (u.type === 'Binder' && +(spot.match(/S\s*(\d+)/i) || [0, 0])[1] > u.pockets) throw new Error(u.label + ' has ' + u.pockets + ' pockets per page.');
+        if (use[u.label].slots[n]) {
+          const who = vals.find(x => String(x[9]).trim() === scanSlotText_(u, n));
+          throw new Error(scanSlotText_(u, n) + ' already holds ' + (who ? who[0] : 'a card') + '.');
+        }
+      } else {
+        n = scanFree_(use[u.label].slots);
+        if (n > u.cap) throw new Error(u.label + ' is full.');
+      }
+      loc = scanSlotText_(u, n);
+    } else {
+      if (use[u.label].qty + qty > u.cap) throw new Error(u.label + ' is full.');
+      if (u.type === 'Sealed') loc = u.label;
+      else {
+        const b = scanBulkSpot_({foil: /holo|reverse|\bex\b|\bv\b|vmax|vstar|rare/i.test(r[3]) && !/^(common|uncommon)$/i.test(r[3]), category: r[4], basicEnergy: /^basic/i.test(r[0]), set: r[1]});
+        loc = u.label + ' ' + (/^Row /i.test(spot) ? spot : b.row);
+        prot = /^Row 1/i.test(loc.slice(u.label.length + 1)) ? 'Penny sleeve' : 'Raw (no sleeve)';
+      }
+    }
+    // A graded slab stays a slab; otherwise the card is recorded in what its new spot uses.
+    col.getRange(row, 10, 1, 2).setValues([[loc, r[10] === 'Graded slab' ? r[10] : prot]]);
+    col.getRange(row, 18).setValue(keep ? true : '');
+    // A card moved into a top loader gets a Grading row if it doesn't have one.
+    let grading = false;
+    if (u.type === 'Top loaders') {
+      const g = ss.getSheetByName('Grading');
+      const gLast = g ? scanFirstEmptyRow_(g) - 1 : 1;
+      const gVals = gLast >= 2 ? g.getRange(2, 1, gLast - 1, 3).getDisplayValues() : [];
+      if (g && !gVals.some(x => x.every((v, j) => String(v).trim() === want[j]))) {
+        scanWriteRows_(g, gLast + 1, [[want[0], want[1], want[2], Number(String(r[7]).replace(/[^0-9.]/g, '')) || '']], {numCol: 3});
+        grading = true;
+      }
+    }
+    SpreadsheetApp.flush();
+    return {name: want[0], loc: loc, from: want[3], keep: !!keep, grading: grading};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ---------- edit storage ---------- */
+// units: the whole list in order ({label, type, pockets, pages, cap, set, min, max}); renames: {old label: new label}.
+// A renamed unit's cards get the new label in their locations. A unit can only be taken off once it's empty,
+// and a unit can't shrink below what's in it.
+function scanSaveUnits_(list, renames) {
+  if (!Array.isArray(list) || !list.length) throw new Error('Keep at least one storage unit.');
+  if (list.length > SCAN_UNIT_ROWS) throw new Error('Up to ' + SCAN_UNIT_ROWS + ' storage units.');
+  renames = renames || {};
+  const num = (v, name) => {
+    if (v === '' || v == null) return '';
+    const n = Number(String(v).replace(/[^0-9.]/g, ''));
+    if (!isFinite(n)) throw new Error(name + ' must be a number.');
+    return n;
+  };
+  const units = list.map(x => {
+    const u = {label: String(x.label || '').trim().replace(/\s+/g, ' '), type: String(x.type || '').trim(), set: String(x.set || '').trim()};
+    if (!u.label) throw new Error('Every storage unit needs a label.');
+    if (u.label.length > 40 || /#/.test(u.label) || /\s(P\s*\d+|Row)\b/i.test(u.label)) throw new Error('Pick a shorter label for "' + u.label + '" without #, "Row" or a page number in it.');
+    if (SCAN_TYPES.indexOf(u.type) < 0) throw new Error('Pick a type for ' + u.label + '.');
+    u.min = num(x.min, 'The lowest price for ' + u.label); u.max = num(x.max, 'The highest price for ' + u.label);
+    if (u.min !== '' && u.max !== '' && u.min > u.max) throw new Error(u.label + '\'s lowest price is above its highest.');
+    if (u.type === 'Binder') {
+      u.pockets = Math.round(num(x.pockets, 'Pockets per page') || 0); u.pages = Math.round(num(x.pages, 'Pages') || 0);
+      if (u.pockets < 1 || u.pockets > 24 || u.pages < 1 || u.pages > 200) throw new Error('Give ' + u.label + ' 1–24 pockets per page and 1–200 pages.');
+      u.cap = u.pockets * u.pages;
+    } else {
+      u.pockets = ''; u.pages = '';
+      u.cap = Math.round(num(x.cap, 'How many it holds') || 0);
+      if (u.cap < 1) throw new Error('Say how many ' + u.label + ' holds.');
+    }
+    return u;
+  });
+  const seen = {};
+  units.forEach(u => { const k = u.label.toLowerCase(); if (seen[k]) throw new Error('Two units are called "' + u.label + '".'); seen[k] = true; });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = SpreadsheetApp.openById(scanSheetId_());
+    const col = ss.getSheetByName('Collection'), st = ss.getSheetByName('Storage');
+    const old = scanUnits_(ss), use = scanUsage_(col, old);
+    const newName = {};
+    old.forEach(o => { newName[o.label] = Object.prototype.hasOwnProperty.call(renames, o.label) ? String(renames[o.label]).trim().replace(/\s+/g, ' ') : o.label; });
+    for (const o of old) {
+      const now = units.find(u => u.label === newName[o.label]);
+      const x = use[o.label], held = (o.type === 'Binder' || o.type === 'Top loaders') ? Object.keys(x.slots).length : x.qty;
+      if (!now) { if (x.qty) throw new Error(o.label + ' still holds ' + x.qty + (o.type === 'Sealed' ? ' items' : ' cards') + '. Move them out before taking it off.'); continue; }
+      if (x.qty && now.type !== o.type) throw new Error(o.label + ' still holds cards, so its type can\'t change.');
+      if (now.cap < held) throw new Error(now.label + ' holds ' + held + ' already, so it can\'t be made smaller than that.');
+      if (o.type === 'Binder' && now.pockets !== o.pockets && Object.keys(x.slots).length) throw new Error(o.label + ' has cards in it, so its pockets per page can\'t change.');
+      if ((o.type === 'Binder' || o.type === 'Top loaders') && Object.keys(x.slots).some(n => +n > now.cap)) throw new Error(now.label + ' has cards past its new size. Move them first.');
+    }
+    // Renames: rewrite the label at the start of every location in the old unit.
+    const moves = old.filter(o => newName[o.label] !== o.label && units.some(u => u.label === newName[o.label]));
+    if (moves.length) {
+      const last = scanFirstEmptyRow_(col) - 1;
+      if (last >= 2) {
+        const rng = col.getRange(2, 10, last - 1, 1), locs = rng.getValues();
+        locs.forEach(l => { const o = scanUnitOf_(old, l[0]); if (o && newName[o.label] !== o.label) l[0] = newName[o.label] + String(l[0]).trim().slice(o.label.length); });
+        rng.setValues(locs);
+      }
+    }
+    const grid = units.map(u => [u.label, u.type, u.pockets, u.pages, u.cap, u.set, u.min, u.max]);
+    while (grid.length < SCAN_UNIT_ROWS) grid.push(['', '', '', '', '', '', '', '']);
+    st.getRange(2, 1, SCAN_UNIT_ROWS, 8).setValues(grid);
+    SpreadsheetApp.flush();
+    return {units: units.length};
+  } finally {
+    lock.releaseLock();
+  }
 }

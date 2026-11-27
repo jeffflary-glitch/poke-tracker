@@ -316,3 +316,10 @@ dialog#scan{width:min(480px,calc(100vw - 24px))}
 .rmbar .btn{flex:1;justify-content:center;padding:11px 14px;font-size:15px;border-radius:12px}
 .btn.rmgo{background:var(--bad);border-color:var(--bad);color:#fff}
 .rmdone{margin:0;font-weight:600;color:var(--good)}
+.sheet{grid-template-columns:repeat(var(--cols,3),minmax(0,1fr))}
+.unit .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.unit .ubar{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
+.unit .ubar .btn{padding:5px 10px}
+.mvflag{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--warn);border-radius:10px;background:var(--surface-2)}
+.panel>.chips{margin-bottom:10px}
+.mvbox{border-color:var(--line)}

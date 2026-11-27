@@ -13,13 +13,14 @@ const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID + "/edit"
 const API = CFG.api || "https://script.google.com/macros/s/AKfycbwPHBji0cPxwD9_-YTLs3W25WNh9dL4M6P6rw5exU3hSZjCoGwA4DFxm9zxOVUFcEILaw/exec";
 const CACHE_KEY = CFG.store + "-data";
 const TAB_KEY = CFG.store + "-tab";
-const KEYS = ["collection","storage","grading","log","history"];
+const KEYS = ["storage","collection","grading","log","history"]; // storage first: collection rows look up their unit
 const TIERS = [
-  {k:"top", label:"Top loaders", sub:"$20+ · penny sleeve + 35pt"},
-  {k:"binder", label:"Binder", sub:"$2–19.99 · Vault X 9-pocket"},
-  {k:"bulk", label:"Bulk box", sub:"Under $2 · 3,600-count"},
-  {k:"sealed", label:"Sealed", sub:"Sealed shelf"}
+  {k:"top", label:"Top loaders", type:"Top loaders"},
+  {k:"binder", label:"Binders", type:"Binder"},
+  {k:"bulk", label:"Bulk boxes", type:"Bulk box"},
+  {k:"sealed", label:"Sealed", type:"Sealed"}
 ];
+const TIER_OF = {"Top loaders":"top", Binder:"binder", "Bulk box":"bulk", Sealed:"sealed"};
 const S = {data:{}, err:{}, at:{}, tab:"overview", q:"", filter:"all", sort:"value", page:1, flip:"", mode:"loading", busy:false};
 
 try { const t = localStorage.getItem(TAB_KEY); if (t) S.tab = t; } catch(e) {}
@@ -31,14 +32,30 @@ const money = v => { const n = parseFloat(String(v ?? "").replace(/[^0-9.-]/g, "
 const usd = n => n.toLocaleString("en-US", {style:"currency", currency:"USD"});
 const gain = n => (n < 0 ? "−" : "+") + usd(Math.abs(n));
 const int = n => Math.round(n).toLocaleString("en-US");
-function tierOf(loc){
-  const l = String(loc||"");
-  if (/^buffer/i.test(l) || /top loader/i.test(l)) return "top";
-  if (/^binder/i.test(l)) return "binder";
-  if (/^bulk/i.test(l)) return "bulk";
-  if (/sealed/i.test(l)) return "sealed";
-  return "other";
+/* Storage units (Storage tab): a location is a unit's label plus its spot, e.g. "Binder P2 S5", "Buffer #7",
+   "Bulk Row 2 – Journey Together", "Sealed Shelf". The unit is the longest label the location starts with. */
+const units = () => (S.data.storage && S.data.storage.units) || [];
+function unitOf(loc){
+  const l = String(loc || "").trim();
+  return units().filter(u => l === u.label || l.startsWith(u.label + " ")).sort((a, b) => b.label.length - a.label.length)[0] || null;
 }
+function tierOf(loc){ const u = unitOf(loc); return u ? TIER_OF[u.type] : "other"; }
+// Same job rules as Scan.gs (scanFits_ / scanMatches_) and the Collection tab's formulas.
+function fitsJob(u, c){
+  if ((c.cat === "Sealed") !== (u.type === "Sealed")) return false;
+  if (u.set && u.set.trim().toLowerCase() !== String(c.set || "").trim().toLowerCase()) return false;
+  if (u.min != null && !(c.price >= u.min)) return false;
+  if (u.max != null && !(c.price <= u.max)) return false;
+  return true;
+}
+const jobMatches = c => units().map((u, i) => ({u, s:(u.set ? 100 : 0) + ((u.min != null) + (u.max != null)) * 10 - i / 100}))
+  .filter(x => fitsJob(x.u, c)).sort((a, b) => b.s - a.s).map(x => x.u);
+const unitKind = u => ({Binder:"binder", "Top loaders":"top loader box", "Bulk box":"bulk box", Sealed:"sealed shelf"})[u.type];
+function jobText(u){
+  const p = u.min != null && u.max != null ? usd(u.min) + "–" + usd(u.max) : u.min != null ? usd(u.min) + " and up" : u.max != null ? "up to " + usd(u.max) : "";
+  return [u.set, p].filter(Boolean).join(" · ") || "anything that fits";
+}
+function sizeText(u){ return u.type === "Binder" ? `${u.pockets}-pocket · ${u.pages} pages` : `holds ${int(u.cap)}`; }
 function ago(ts){
   if (!ts) return "";
   const m = Math.round((Date.now() - ts) / 60000);
@@ -218,14 +235,94 @@ function openDetail(i){
       <div class="loc" style="display:flex;flex-wrap:wrap;gap:6px"><span class="pin t-${r.tier}"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
       <div class="gtbl">${row("Condition", r.cond)}${row("Protection", r.prot)}${row("Added", r.date)}${row("Status", r.status)}${row("Check", r.check)}${row("Category", r.cat)}</div>
       ${hasPic(r) ? '<p class="note" style="margin:0">Card picture from TCGdex, matched by set and number.</p>' : r.tier === "sealed" ? '<p class="note" style="margin:0">Shows your photo if you\'ve added one, otherwise the set logo.</p>' : ""}
+      <div id="dmove"></div>
       <div id="drm"></div>
     </div>`;
   $("dclose").onclick = () => d.close();
   d.onclick = e => { if (e.target === d) d.close(); };
   Object.assign(RM, {r, open:false, qty:1, reason:"", price:"", note:"", busy:false, err:"", done:null, batch:""});
-  renderRemove();
+  Object.assign(MV, {r, open:false, unit:"", page:"", pocket:"", num:"", row:"", keep:false, busy:false, err:"", done:null});
+  renderRemove(); renderMove();
   if (d.showModal) d.showModal(); else d.setAttribute("open", "");
   hydrate(d);
+}
+
+/* ---------- move ---------- */
+// Moves a card to another unit or spot (Scan.gs, action "move"), or marks it as staying where it is on purpose
+// (Collection R "Keep Here"), so a spot that doesn't match its job stops showing "⚠ Move to …".
+const MV = {r:null, open:false, unit:"", page:"", pocket:"", num:"", row:"", keep:false, pw:"", busy:false, err:"", done:null};
+const mvRows = r => [["", "Pick for me"], ["Row 1 Back – " + r.set, "Row 1 Back – " + r.set + " (holos, sleeved)"], ["Row 2 – " + r.set, "Row 2 – " + r.set],
+  ["Row 3 – Trainers", "Row 3 – Trainers"], ["Row 3 – Basic Energy", "Row 3 – Basic Energy"]];
+function moveView(){
+  const r = MV.r, d = MV.done;
+  if (d) return `<p class="rmdone">${d.loc === d.from || !d.from ? (d.keep ? "Staying in " + esc(d.loc) + ". It won't be flagged." : "No longer marked to stay.") : "Moved to " + esc(d.loc) + "."}</p>
+    ${d.grading ? `<p class="note" style="margin:0">It's on the Grading tab now too.</p>` : ""}`;
+  const flag = /^⚠ Move to /.test(r.status) ? r.status.replace(/^⚠ Move to /, "") : "";
+  const pass = getPass() ? "" : `<label class="field"><span>Scanner passcode</span><input id="mvpass" type="password" autocomplete="current-password" value="${esc(MV.pw)}"></label>`;
+  const err = MV.err ? `<div class="secerr" role="alert">${esc(MV.err)}</div>` : "";
+  if (!MV.open) return `${flag ? `<div class="mvflag"><p style="margin:0">Its job says <b>${esc(flag)}</b>.</p>
+      <div class="rmbar"><button class="btn" type="button" id="mvkeep"${MV.busy ? " disabled" : ""}>Keep it here</button><button class="btn primary" type="button" id="mvgo1"${MV.busy ? " disabled" : ""}>Move to ${esc(flag)}</button></div>${pass}${err}</div>` : ""}
+    ${r.keep ? `<p class="note" style="margin:0">Kept here by choice, so it isn't flagged. <button class="linkbtn" type="button" id="mvunkeep">Undo</button></p>${pass}${err}` : ""}
+    <button class="btn big" type="button" id="mvopen">Move to another spot</button>`;
+  const sealed = r.cat === "Sealed", list = units().filter(u => (u.type === "Sealed") === sealed);
+  const fits = new Set(jobMatches({cat:r.cat, set:r.set, price:r.price}).map(u => u.label));
+  const u = list.find(x => x.label === MV.unit) || null;
+  const spot = !u ? "" : u.type === "Binder" ? `<div class="sflds b2">
+      <label class="field"><span>Page <i class="muted">blank = next open</i></span><input id="mvpage" type="number" inputmode="numeric" min="1" max="${u.pages}" value="${esc(MV.page)}"></label>
+      <label class="field"><span>Pocket (1–${u.pockets})</span><input id="mvpocket" type="number" inputmode="numeric" min="1" max="${u.pockets}" value="${esc(MV.pocket)}"></label></div>`
+    : u.type === "Top loaders" ? `<label class="field"><span>Number <i class="muted">blank = next open</i></span><input id="mvnum" type="number" inputmode="numeric" min="1" max="${u.cap}" value="${esc(MV.num)}"></label>`
+    : u.type === "Bulk box" ? `<label class="field"><span>Row</span><select id="mvrow">${mvRows(r).map(([v, l]) => `<option value="${esc(v)}"${v === MV.row ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>` : "";
+  return `<div class="rmbox mvbox">
+    <h3>Move ${esc(r.name)}</h3>
+    <p class="note" style="margin:0">Now in ${esc(r.loc || "no spot")}.</p>
+    <label class="field"><span>Move to</span><select id="mvunit"><option value="">Pick storage…</option>${list.map(x => `<option value="${esc(x.label)}"${x.label === MV.unit ? " selected" : ""}>${esc(x.label)}${fits.has(x.label) ? " · fits its job" : ""} (${int(x.open)} open)</option>`).join("")}</select></label>
+    ${spot}
+    ${u && !fits.has(u.label) ? `<label class="check"><input type="checkbox" id="mvkeepbox"${MV.keep ? " checked" : ""}> Its job doesn't fit this card. Keep it there anyway, without a flag</label>` : ""}
+    ${pass}${err}
+    <div class="rmbar"><button class="btn" type="button" id="mvcancel">Cancel</button><button class="btn primary" type="button" id="mvgo"${MV.busy || !u ? " disabled" : ""}>${MV.busy ? '<span class="spin" aria-hidden="true"></span> Moving' : "Move"}</button></div>
+  </div>`;
+}
+function renderMove(){
+  const box = $("dmove");
+  if (!box || !MV.r) return;
+  box.innerHTML = moveView();
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on("mvopen", () => { Object.assign(MV, {open:true, err:""}); renderMove(); });
+  on("mvcancel", () => { Object.assign(MV, {open:false, err:"", unit:"", page:"", pocket:"", num:"", row:"", keep:false}); renderMove(); });
+  on("mvkeep", () => doMove(null, true));
+  on("mvunkeep", () => doMove(null, false));
+  on("mvgo1", () => doMove({label:MV.r.status.replace(/^⚠ Move to /, "")}, false));
+  on("mvgo", () => {
+    const u = units().find(x => x.label === MV.unit);
+    if (!u) return;
+    let spot = "";
+    if (u.type === "Binder" && (MV.page || MV.pocket)) {
+      if (!MV.page || !MV.pocket) { MV.err = "Fill in both page and pocket, or leave both blank for the next open pocket."; renderMove(); return; }
+      spot = `P${MV.page} S${MV.pocket}`;
+    }
+    if (u.type === "Top loaders" && MV.num) spot = "#" + MV.num;
+    if (u.type === "Bulk box") spot = MV.row;
+    doMove({label:u.label, spot}, MV.keep);
+  });
+  const sel = $("mvunit"); if (sel) sel.onchange = () => { MV.unit = sel.value; MV.keep = false; MV.err = ""; renderMove(); };
+  const keep = (id, k) => { const el = $(id); if (el) el.oninput = el.onchange = () => { MV[k] = el.type === "checkbox" ? el.checked : el.value; }; };
+  keep("mvpage", "page"); keep("mvpocket", "pocket"); keep("mvnum", "num"); keep("mvrow", "row"); keep("mvkeepbox", "keep"); keep("mvpass", "pw");
+}
+async function doMove(to, keep){
+  if ($("mvpass")) {
+    if (!MV.pw.trim()) { MV.err = "Type the scanner passcode first."; renderMove(); return; }
+    setPass(MV.pw.trim());
+  }
+  const r = MV.r;
+  Object.assign(MV, {busy:true, err:""}); renderMove();
+  try {
+    MV.done = await scanCall({action:"move", item:{name:r.name, set:r.set, number:r.num, loc:r.loc}, to, keep:!!keep}, 45000);
+    loadAll();
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") { setPass(""); MV.pw = ""; }
+    MV.err = e.message === "Unknown request." ? "Moving needs the newest Scan.gs: paste it into Apps Script and deploy a new version." : e.message;
+  }
+  MV.busy = false; renderMove();
 }
 
 /* ---------- remove ---------- */
@@ -244,14 +341,14 @@ const rmCount = () => Math.max(1, Math.min(RM.r.qty, Math.round(+RM.qty) || 1));
 function rmWhat(){
   const r = RM.r, n = rmCount();
   const what = n < r.qty ? `Qty goes from ${int(r.qty)} to ${int(r.qty - n)}.`
-    : `Deletes this row from “${esc(CFG.sheetName)}”.` + (/^Binder/i.test(r.loc) ? ` ${esc(r.loc)} opens up for the next binder card.`
-    : /^Buffer/i.test(r.loc) ? ` ${esc(r.loc)} opens up, and its Grading row is removed too.` : "");
+    : `Deletes this row from “${esc(CFG.sheetName)}”.` + (r.tier === "binder" ? ` ${esc(r.loc)} opens up for the next binder card.`
+    : r.tier === "top" ? ` ${esc(r.loc)} opens up, and its Grading row is removed too.` : "");
   return what + (!RM.reason ? "" : RM.reason === "mistake" ? " Not logged anywhere." : " Logged on the “Sold &amp; Opened” tab.");
 }
 function removeView(){
   const r = RM.r, d = RM.done;
   if (d) return `<p class="rmdone">${esc(d.reason || "Removed")} ${int(d.removed)} × ${esc(d.name)}${d.sold !== "" && d.sold != null ? ` for ${usd(+d.sold)} each` : ""}${d.left ? ` · ${int(d.left)} left` : ""}.</p>
-    ${!d.left && /^(Binder|Buffer)/i.test(d.loc) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${/^Buffer/i.test(d.loc) ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}
+    ${!d.left && /^(binder|top)$/.test(tierOf(d.loc)) ? `<p class="note" style="margin:0">${esc(d.loc)} is open now. The next ${tierOf(d.loc) === "top" ? "top loader card" : "binder card"} goes there.${d.grading ? " Its Grading row was removed too." : ""}</p>` : ""}
     ${d.reason ? `<p class="note" style="margin:0">Logged on the “Sold &amp; Opened” tab.</p>` : ""}
     ${d.reason === "Opened" ? `<button class="btn primary big" type="button" id="rmpulls">Scan what you pulled</button>` : ""}`;
   if (!RM.open) return `<button class="btn big rmbtn" type="button" id="rmopen">Remove from collection</button>`;
@@ -310,22 +407,19 @@ function parse(key, rows){
   if (key === "collection") return body.map((r, i) => {
     const qty = money(r[6]) || 1, price = money(r[7]);
     const total = r[11] ? money(r[11]) : qty * price;
-    const m = String(r[9]||"").match(/P\s*(\d+)\s*S\s*(\d+)/i);
+    const u = unitOf(r[9]), m = u && u.type === "Binder" && String(r[9]).trim().slice(u.label.length).match(/^\s*P\s*(\d+)\s*S\s*(\d+)\s*$/i);
     return {i, name:r[0], set:r[1]||"", num:r[2]||"", rarity:r[3]||"", cat:r[4]||"", cond:r[5]||"",
       qty, price, total, date:r[8]||"", loc:r[9]||"", prot:r[10]||"", rec:r[12]||"", req:r[13]||"",
-      status:r[14]||"", check:r[15]||"", paid:String(r[16]||"").trim() ? money(r[16]) : null, tier:tierOf(r[9]), page:m?+m[1]:null, slot:m?+m[2]:null,
+      status:r[14]||"", check:r[15]||"", paid:String(r[16]||"").trim() ? money(r[16]) : null, tier:u ? TIER_OF[u.type] : "other", unit:u ? u.label : "",
+      page:m?+m[1]:null, slot:m?+m[2]:null, keep:/^true$/i.test(String(r[17]||"").trim()),
       sleeve:/^upgrade/i.test(String(r[15]||""))};
   });
+  // Storage: Label | Type | Pockets per page | Pages | Capacity | Job: set | Job: min $ | Job: max $ | In use | Open | Next open spot
   if (key === "storage") {
-    const units = [], spots = [];
-    let inSpots = false;
-    for (const r of rows.slice(1)) {
-      if (!r || !r.length || !String(r[0]||"").trim()) continue;
-      if (/next open spot/i.test(r[0])) { inSpots = true; continue; }
-      if (inSpots) spots.push({label:r[0], loc:r[1]||""});
-      else units.push({unit:r[0], spec:r[1]||"", rule:r[2]||"", count:money(r[3]), max:money(r[4]), status:r[7]||""});
-    }
-    return {units, spots};
+    const n = v => String(v ?? "").trim() === "" ? null : money(v);
+    return {units: body.filter(r => TIER_OF[String(r[1]||"").trim()]).map(r => ({label:String(r[0]).trim(), type:String(r[1]).trim(),
+      pockets:n(r[2]) || 9, pages:n(r[3]) || 0, cap:n(r[4]) || 0, set:String(r[5]||"").trim(), min:n(r[6]), max:n(r[7]),
+      used:money(r[8]), open:money(r[9]), next:String(r[10]||"").trim()}))};
   }
   if (key === "grading") return body.map(r => ({name:r[0], set:r[1]||"", num:r[2]||"", raw:money(r[3]), p10:money(r[4]), p9:money(r[5]), p8:money(r[6]),
       net10:money(r[7]), net9:money(r[8]), rec:String(r[9]||"").toUpperCase(), ai:r[10]||"", hands:r[11]||"", send:r[12]||"", step:r[13]||"", grade:r[14]||"", housing:r[15]||""}));
@@ -490,7 +584,8 @@ function viewOverview(){
   const {c, t, qty, value} = stats();
   const sealedQty = t.sealed.qty, cardQty = qty - sealedQty;
   const stack = TIERS.map(x => `<span class="c-${x.k}" style="width:${value ? (t[x.k].value / value * 100).toFixed(2) : 0}%" title="${esc(x.label)}"></span>`).join("");
-  const tiers = TIERS.map(x => `<div class="tier"><i class="c-${x.k}"></i><span class="l">${x.label}</span><span class="v">${usd(t[x.k].value)}</span><span class="s">${x.sub}</span><span class="c">${int(t[x.k].qty)} ${x.k === "sealed" ? "items" : "cards"}</span></div>`).join("");
+  const tierSub = x => { const us = units().filter(u => u.type === x.type); return us.length === 1 ? esc(us[0].label) + " · " + jobText(us[0]) : us.length + " units"; };
+  const tiers = TIERS.map(x => `<div class="tier"><i class="c-${x.k}"></i><span class="l">${x.label}</span><span class="v">${usd(t[x.k].value)}</span><span class="s">${tierSub(x)}</span><span class="c">${int(t[x.k].qty)} ${x.k === "sealed" ? "items" : "cards"}</span></div>`).join("");
 
   const sets = {};
   c.filter(r => r.tier !== "sealed").forEach(r => { const k = r.set.replace(/\s*\(.*\)\s*$/, "") || "Unknown"; sets[k] = (sets[k] || 0) + r.total; });
@@ -501,7 +596,7 @@ function viewOverview(){
   const hits = c.filter(r => r.tier !== "sealed" && !/\(count\)/i.test(r.name)).sort((a,b) => b.price - a.price).slice(0, 6)
     .map(r => `<li class="t-${r.tier} tap" data-i="${r.i}"><span class="thumb sm"${picAttrs(r)}></span><span class="nm">${esc(r.name)}</span><span class="px">${usd(r.price)}</span><span class="meta">${esc(r.set)} · ${esc(r.num)} · <span class="pin"><i></i>${esc(r.loc)}</span></span></li>`).join("");
 
-  const needSleeve = c.filter(r => r.sleeve);
+  const needSleeve = c.filter(r => r.sleeve), toMove = c.filter(needsMove);
   const nsQty = needSleeve.reduce((a,r) => a + r.qty, 0);
   const g = S.data.grading || [];
   const screen = g.filter(x => /screen/i.test(x.send) || !x.send).length;
@@ -529,7 +624,8 @@ function viewOverview(){
     <section class="panel">
       <h2>To do</h2>
       <ul class="hits">
-        <li><span class="nm">Penny-sleeve the holos</span><span class="px">${int(nsQty)}</span><span class="meta">${needSleeve.length} rows in Bulk Row 1 are still raw. <button class="btn" type="button" data-go="collection" data-filter="sleeve" style="margin-left:4px">Show them</button></span></li>
+        <li><span class="nm">Cards to move</span><span class="px">${int(toMove.length)}</span><span class="meta">Their spot doesn't match a storage job. Move them or keep them there. <button class="btn" type="button" data-go="collection" data-filter="move" style="margin-left:4px">Show them</button></span></li>
+        <li><span class="nm">Penny-sleeve the holos</span><span class="px">${int(nsQty)}</span><span class="meta">${needSleeve.length} rows in a bulk box's Row 1 are still raw. <button class="btn" type="button" data-go="collection" data-filter="sleeve" style="margin-left:4px">Show them</button></span></li>
         <li><span class="nm">Grading candidates to screen</span><span class="px">${S.data.grading ? int(screen) : "–"}</span><span class="meta">Check centering and surface before deciding. <button class="btn" type="button" data-go="grading" style="margin-left:4px">Open grading</button></span></li>
       </ul>
       ${secErr("grading","Grading")}
@@ -583,9 +679,10 @@ function logView(){
 }
 
 const FILTERS = [
-  {k:"all", label:"All"}, {k:"top", label:"Top loaders"}, {k:"binder", label:"Binder"},
-  {k:"bulk", label:"Bulk box"}, {k:"sealed", label:"Sealed"}, {k:"sleeve", label:"Needs sleeve"}
+  {k:"all", label:"All"}, {k:"top", label:"Top loaders"}, {k:"binder", label:"Binders"},
+  {k:"bulk", label:"Bulk"}, {k:"sealed", label:"Sealed"}, {k:"sleeve", label:"Needs sleeve"}, {k:"move", label:"To move"}
 ];
+const needsMove = r => /^⚠ (Move|No storage|Unknown)/.test(r.status);
 function viewCollection(){
   return `<div class="toolbar">
     <label class="search" for="q"><span class="muted" aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Search name, set, number or location" value="${esc(S.q)}" autocomplete="off"></label>
@@ -597,7 +694,7 @@ function viewCollection(){
 function filtered(){
   const q = S.q.trim().toLowerCase();
   let rows = (S.data.collection || []).filter(r => {
-    if (S.filter === "sleeve" ? !r.sleeve : (S.filter !== "all" && r.tier !== S.filter)) return false;
+    if (S.filter === "sleeve" ? !r.sleeve : S.filter === "move" ? !needsMove(r) : (S.filter !== "all" && r.tier !== S.filter)) return false;
     if (!q) return true;
     return [r.name, r.set, r.num, r.rarity, r.loc].join(" ").toLowerCase().includes(q);
   });
@@ -620,42 +717,45 @@ function updateList(){
       <span class="thumb"${picAttrs(r)}></span>
       <div><div class="nm">${esc(r.name)}</div><div class="meta">${esc(r.set)}${r.num ? " · " + esc(r.num) : ""}${r.rarity ? " · " + esc(r.rarity) : ""}${r.cond && r.cond !== "NM" ? " · " + esc(r.cond) : ""}</div></div>
       <div class="val"><div class="px">${usd(r.price)}</div>${r.qty > 1 ? `<div class="qty">×${int(r.qty)} · ${usd(r.total)}</div>` : ""}</div>
-      <div class="loc"><span class="pin"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}</div>
+      <div class="loc"><span class="pin"><i></i>${esc(r.loc || "No location")}</span>${r.sleeve ? '<span class="flag">Needs penny sleeve</span>' : ""}${needsMove(r) ? `<span class="flag bad">${esc(r.status.replace(/^⚠ /, ""))}</span>` : ""}</div>
     </li>`).join("") : `<li class="empty">Nothing matches “${esc(S.q)}”.</li>`;
   hydrate($("colList"));
 }
 
 function viewBinder(){
-  const c = (S.data.collection || []).filter(r => r.page);
-  const st = S.data.storage;
-  const nextLoc = st && st.spots.find(s => /binder/i.test(s.label));
-  const nm = nextLoc && String(nextLoc.loc).match(/P\s*(\d+)\s*S\s*(\d+)/i);
+  const bs = units().filter(u => u.type === "Binder");
+  if (!bs.length) return `<section class="panel"><h2>Binders</h2>${secErr("storage","Storage tab") || '<p class="note">No binders yet. Add one on the Storage tab.</p>'}</section>`;
+  const b = bs.find(u => u.label === S.binder) || bs[0];
+  if (S.binder !== b.label) { S.binder = b.label; S.page = 1; }
+  const c = (S.data.collection || []).filter(r => r.page && r.unit === b.label);
+  const nm = b.next.slice(b.label.length).match(/^\s*P\s*(\d+)\s*S\s*(\d+)/i);
   const next = nm ? {p:+nm[1], s:+nm[2]} : null;
-  const used = c.length, maxP = Math.max(1, ...c.map(r => r.page), next ? next.p : 1);
-  const P = S.page, flip = S.flip;
+  const N = b.pockets, maxP = Math.max(1, b.pages);
+  const P = Math.min(S.page, maxP), flip = S.flip;
   S.flip = "";
   const onPage = {}; c.filter(r => r.page === P).forEach(r => onPage[r.slot] = r);
   let slots = "";
-  for (let s = 1; s <= 9; s++) {
+  for (let s = 1; s <= N; s++) {
     const r = onPage[s];
     if (r) slots += `<div class="slot fill tap" data-i="${r.i}"><span class="art"${picAttrs(r)}></span><span class="sn">S${s}</span><span class="nm">${esc(r.name)}</span><span class="meta">${esc(r.set)}<br>${esc(r.num)}</span><span class="px">${usd(r.price)}</span></div>`;
     else if (next && next.p === P && next.s === s) slots += `<div class="slot open next"><span class="sn">S${s}</span>Next open</div>`;
     else slots += `<div class="slot open"><span class="sn">S${s}</span>Open</div>`;
   }
   const pageVal = Object.values(onPage).reduce((a,r) => a + r.total, 0);
-  const pages = Array.from({length: Math.min(40, maxP + 1)}, (_, i) => i + 1).map(p => {
+  const pages = Array.from({length: maxP}, (_, i) => i + 1).map(p => {
     const n = c.filter(r => r.page === p).length;
-    return `<button type="button" data-page="${p}" aria-current="${p === P}" class="${n === 9 ? "full" : ""}" aria-label="Page ${p}, ${n} of 9 filled">${p}</button>`;
+    return `<button type="button" data-page="${p}" aria-current="${p === P}" class="${n === N ? "full" : ""}" aria-label="Page ${p}, ${n} of ${N} filled">${p}</button>`;
   }).join("");
   return `<section class="panel">
+    ${bs.length > 1 ? `<div class="chips" role="group" aria-label="Binder">${bs.map(x => `<button type="button" class="chip" data-binder="${esc(x.label)}" aria-pressed="${x.label === b.label}"><i class="c-binder"></i>${esc(x.label)}</button>`).join("")}</div>` : ""}
     <div class="pager">
-      <div><div class="eyebrow">Vault X 9-pocket binder</div><div class="pg">Page ${P}</div></div>
-      <div style="display:flex;gap:6px"><button class="btn" type="button" data-page="${Math.max(1,P-1)}" ${P <= 1 ? "disabled" : ""}>← Prev</button><button class="btn" type="button" data-page="${Math.min(40,P+1)}" ${P >= 40 ? "disabled" : ""}>Next →</button></div>
+      <div><div class="eyebrow">${esc(b.label)} · ${N}-pocket</div><div class="pg">Page ${P}</div></div>
+      <div style="display:flex;gap:6px"><button class="btn" type="button" data-page="${Math.max(1,P-1)}" ${P <= 1 ? "disabled" : ""}>← Prev</button><button class="btn" type="button" data-page="${Math.min(maxP,P+1)}" ${P >= maxP ? "disabled" : ""}>Next →</button></div>
     </div>
-    <p class="note" style="margin:6px 0 0">${Object.keys(onPage).length} of 9 pockets filled · ${usd(pageVal)} on this page · ${used} of 360 slots used${next ? ` · next card goes in <b>P${next.p} S${next.s}</b>` : ""}</p>
-    <div class="binder-wrap"><div class="sheet ${flip}" role="list" aria-label="Binder page ${P}">${slots}</div></div>
-    <div class="pages" aria-label="Binder pages">${pages}</div>
-    ${secErr("storage","Next open slot")}
+    <p class="note" style="margin:6px 0 0">${Object.keys(onPage).length} of ${N} pockets filled · ${usd(pageVal)} on this page · ${c.length} of ${int(b.cap)} used · job: ${esc(jobText(b))}${next ? ` · next card goes in <b>P${next.p} S${next.s}</b>` : ""}</p>
+    <div class="binder-wrap"><div class="sheet ${flip}" style="--cols:${N <= 4 ? 2 : N <= 9 ? 3 : 4}" role="list" aria-label="${esc(b.label)} page ${P}">${slots}</div></div>
+    <div class="pages" aria-label="Pages">${pages}</div>
+    ${secErr("storage","Storage tab")}
   </section>`;
 }
 
@@ -682,22 +782,104 @@ function viewGrading(){
     </article>`; }).join("")}</div>`;
 }
 
+/* Storage tab: your binders, top loader boxes, bulk boxes and sealed shelves. Edits save the whole list
+   (Scan.gs, action "units"): labels, sizes and jobs. A renamed unit's cards are relabeled; a unit holding cards can't be taken off. */
+const ST = {edit:null, d:null, pw:"", busy:false, err:"", ok:""};
+const ST_TYPES = [["Binder", "Binder"], ["Top loaders", "Top loader box"], ["Bulk box", "Bulk box"], ["Sealed", "Sealed shelf"]];
 function viewStorage(){
-  const st = S.data.storage;
   const {c} = stats();
   const ns = c.filter(r => r.sleeve);
-  const colorFor = u => /binder/i.test(u) ? "c-binder" : /bulk/i.test(u) ? "c-bulk" : /top/i.test(u) ? "c-top" : /sealed/i.test(u) ? "c-sealed" : "c-other";
-  const units = st ? st.units.map(u => {
-    const pct = u.max ? Math.min(100, u.count / u.max * 100) : 0;
-    return `<div class="unit"><span class="l">${esc(u.unit)}</span><span class="r">${int(u.count)} / ${int(u.max)}</span><span class="s">${esc(u.spec)} · ${esc(u.rule)}</span><span class="t"><span class="${colorFor(u.unit)}" style="width:${pct.toFixed(1)}%"></span></span></div>`;
-  }).join("") : "";
-  const spots = st && st.spots.length ? `<div class="spots">${st.spots.map(s => `<div class="spot"><div class="eyebrow">${esc(s.label)}</div><div class="v">${esc(s.loc)}</div></div>`).join("")}</div>` : "";
-  return `${spots ? `<section class="panel"><h2>Next open spots</h2>${spots}</section>` : ""}
-  <section class="panel"><h2>Storage capacity</h2>${secErr("storage","Storage tab")}<div class="units">${units || '<p class="note">Loading…</p>'}</div></section>
+  const us = units();
+  const list = us.map((u, i) => {
+    const held = u.used, pct = u.cap ? Math.min(100, held / u.cap * 100) : 0;
+    return `<div class="unit"><span class="l"><i class="dot c-${TIER_OF[u.type]}"></i>${esc(u.label)}</span><span class="r">${int(held)} / ${int(u.cap)}</span>
+      <span class="s">${esc(ST_TYPES.find(t => t[0] === u.type)[1])} · ${esc(sizeText(u))} · job: ${esc(jobText(u))}${u.next && u.next !== u.label ? ` · next: <b>${esc(u.next)}</b>` : ""}</span>
+      <span class="t"><span class="c-${TIER_OF[u.type]}" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="ubar"><button class="btn" type="button" data-uup="${i}" aria-label="Move ${esc(u.label)} up"${i ? "" : " disabled"}>↑</button><button class="btn" type="button" data-udown="${i}" aria-label="Move ${esc(u.label)} down"${i < us.length - 1 ? "" : " disabled"}>↓</button><button class="btn" type="button" data-uedit="${i}">Edit</button></span></div>`;
+  }).join("");
+  return `<section class="panel"><h2>Your storage</h2>
+    <p class="note" style="margin-top:0">New cards go to the storage whose job fits best: a set job beats a price job, then the higher one in this list wins. A full one passes cards to the next.</p>
+    ${secErr("storage","Storage tab")}${ST.ok ? `<p class="rmdone">${esc(ST.ok)}</p>` : ""}
+    ${ST.edit != null ? unitForm() : `<div class="units">${list || '<p class="note">No storage yet.</p>'}</div>
+    ${ST.err ? `<div class="secerr" role="alert">${esc(ST.err)}</div>` : ""}
+    ${!getPass() && ST.err ? `<label class="field"><span>Scanner passcode</span><input id="stpass" type="password" autocomplete="current-password" value="${esc(ST.pw)}"></label>` : ""}
+    <button class="btn big" type="button" id="uadd" style="margin-top:12px">+ Add storage</button>`}
+  </section>
   <section class="panel"><h2>Needs a penny sleeve</h2>
-    <p class="note" style="margin-top:0">Holos and reverse holos in Bulk Row 1 should be sleeved even under $2. ${int(ns.reduce((a,r)=>a+r.qty,0))} cards across ${ns.length} rows are still raw.</p>
+    <p class="note" style="margin-top:0">Holos and reverse holos in a bulk box's Row 1 should be sleeved even under $2. ${int(ns.reduce((a,r)=>a+r.qty,0))} cards across ${ns.length} rows are still raw.</p>
     <ul class="hits">${ns.sort((a,b)=>a.loc.localeCompare(b.loc)).map(r => `<li><span class="nm">${esc(r.name)}</span><span class="px">×${int(r.qty)}</span><span class="meta"><span class="pin"><i></i>${esc(r.loc)}</span></span></li>`).join("") || '<li class="muted">Everything is sleeved.</li>'}</ul>
   </section>`;
+}
+function unitForm(){
+  const d = ST.d, isNew = ST.edit < 0, u = isNew ? null : units()[ST.edit];
+  const sets = [...new Set((S.data.collection || []).map(r => String(r.set || "").replace(/\s*\(.*\)\s*$/, "").trim()).filter(x => x && !/^mixed$/i.test(x)))].sort();
+  return `<div class="rmbox mvbox">
+    <h3>${isNew ? "Add storage" : "Edit " + esc(u.label)}</h3>
+    <label class="field"><span>Label</span><input id="ulabel" maxlength="40" value="${esc(d.label)}" placeholder="e.g. Red binder"></label>
+    <label class="field"><span>Type</span><select id="utype"${!isNew && u.used ? " disabled" : ""}>${ST_TYPES.map(([v, l]) => `<option value="${v}"${v === d.type ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+    ${d.type === "Binder" ? `<div class="sflds b2">
+      <label class="field"><span>Pockets per page</span><select id="upockets"${!isNew && u.used ? " disabled" : ""}>${[4, 9, 12, 16, 18, 24].map(n => `<option${n == d.pockets ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="field"><span>Pages</span><input id="upages" type="number" inputmode="numeric" min="1" max="200" value="${esc(d.pages)}"></label></div>
+      <p class="note" style="margin:0">Count each side as a page: a binder with 20 sheets holds 40 pages.</p>`
+    : `<label class="field"><span>${d.type === "Sealed" ? "Items it holds" : "Cards it holds"}</span><input id="ucap" type="number" inputmode="numeric" min="1" value="${esc(d.cap)}"></label>`}
+    <p class="note" style="margin:4px 0 0"><b>Job</b> · leave blank for anything that fits.</p>
+    <label class="field"><span>Only this set</span><input id="uset" list="usets" value="${esc(d.set)}" placeholder="Any set" autocomplete="off"></label>
+    <datalist id="usets">${sets.map(x => `<option value="${esc(x)}">`).join("")}</datalist>
+    ${d.type === "Sealed" ? "" : `<div class="sflds b2">
+      <label class="field"><span>Lowest price $</span><input id="umin" inputmode="decimal" value="${esc(d.min)}" placeholder="No limit"></label>
+      <label class="field"><span>Highest price $</span><input id="umax" inputmode="decimal" value="${esc(d.max)}" placeholder="No limit"></label></div>`}
+    ${!getPass() ? `<label class="field"><span>Scanner passcode</span><input id="stpass" type="password" autocomplete="current-password" value="${esc(ST.pw)}"></label>` : ""}
+    ${ST.err ? `<div class="secerr" role="alert">${esc(ST.err)}</div>` : ""}
+    <div class="rmbar">
+      ${isNew ? "" : `<button class="btn rmgo" type="button" id="udel"${ST.busy ? " disabled" : ""}${u.used ? ` title="Move its cards out first"` : ""}>Take off</button>`}
+      <button class="btn" type="button" id="ucancel">Cancel</button>
+      <button class="btn primary" type="button" id="usave"${ST.busy ? " disabled" : ""}>${ST.busy ? '<span class="spin" aria-hidden="true"></span> Saving' : "Save"}</button>
+    </div>
+  </div>`;
+}
+const unitData = u => ({label:u.label, type:u.type, pockets:u.type === "Binder" ? u.pockets : "", pages:u.type === "Binder" ? u.pages : "",
+  cap:u.cap, set:u.set, min:u.min == null ? "" : u.min, max:u.max == null ? "" : u.max});
+function wireStorage(){
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  const redraw = () => { $("main").innerHTML = viewStorage(); wireStorage(); };
+  on("uadd", () => { Object.assign(ST, {edit:-1, err:"", ok:"", d:{label:"", type:"Binder", pockets:9, pages:20, cap:"", set:"", min:"", max:""}}); redraw(); });
+  document.querySelectorAll("[data-uedit]").forEach(b => b.onclick = () => { const u = units()[+b.dataset.uedit]; Object.assign(ST, {edit:+b.dataset.uedit, err:"", ok:"", d:unitData(u)}); redraw(); });
+  const swap = (i, j) => { const l = units().map(unitData); [l[i], l[j]] = [l[j], l[i]]; saveUnits(l, {}, "Order saved."); };
+  document.querySelectorAll("[data-uup]").forEach(b => b.onclick = () => swap(+b.dataset.uup, +b.dataset.uup - 1));
+  document.querySelectorAll("[data-udown]").forEach(b => b.onclick = () => swap(+b.dataset.udown, +b.dataset.udown + 1));
+  on("ucancel", () => { Object.assign(ST, {edit:null, err:""}); redraw(); });
+  const f = {ulabel:"label", utype:"type", upockets:"pockets", upages:"pages", ucap:"cap", uset:"set", umin:"min", umax:"max"};
+  Object.keys(f).forEach(id => { const el = $(id); if (el) el.oninput = el.onchange = () => { ST.d[f[id]] = el.value; if (id === "utype") redraw(); }; });
+  const pw = $("stpass"); if (pw) pw.oninput = () => { ST.pw = pw.value; };
+  on("usave", () => {
+    const l = units().map(unitData), d = Object.assign({}, ST.d), renames = {};
+    if (d.type === "Sealed") { d.min = ""; d.max = ""; }
+    if (ST.edit < 0) l.push(d);
+    else { const old = l[ST.edit].label; if (old !== d.label.trim()) renames[old] = d.label.trim(); l[ST.edit] = d; }
+    saveUnits(l, renames, ST.edit < 0 ? d.label.trim() + " added." : "Saved.");
+  });
+  on("udel", () => {
+    const u = units()[ST.edit];
+    if (u.used) { ST.err = `${u.label} still holds ${int(u.used)}. Move them out before taking it off.`; redraw(); return; }
+    saveUnits(units().map(unitData).filter((_, i) => i !== ST.edit), {}, u.label + " taken off.");
+  });
+}
+async function saveUnits(list, renames, ok){
+  const redraw = () => { if (S.tab === "storage") { $("main").innerHTML = viewStorage(); wireStorage(); } };
+  if ($("stpass")) {
+    if (!ST.pw.trim()) { ST.err = "Type the scanner passcode first."; redraw(); return; }
+    setPass(ST.pw.trim());
+  }
+  Object.assign(ST, {busy:true, err:"", ok:""}); redraw();
+  try {
+    await scanCall({action:"units", units:list, renames}, 45000);
+    Object.assign(ST, {edit:null, ok});
+    loadAll();
+  } catch(e) {
+    if (e.code === "pass" || e.code === "locked") { setPass(""); ST.pw = ""; }
+    ST.err = e.message === "Unknown request." ? "Editing storage needs the newest Scan.gs: paste it into Apps Script and deploy a new version." : e.message;
+  }
+  ST.busy = false; redraw();
 }
 
 /* ---------- scan cards ---------- */
@@ -708,14 +890,18 @@ function viewStorage(){
 const PASS_KEY = CFG.store + "-pass";
 const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add", typed:false, choices:[], t:{name:"", number:"", finish:"normal", set:""}};
 /* Bulk counts: one count row per set and type, like "Journey Together non-foil bulk (count)".
-   Trainers and basic Energy each share one row (Bulk Row 3 has no set dividers). Must match Scan.gs (SCAN_BULK). */
+   Trainers and basic Energy each share one row (Row 3 has no set dividers). Must match Scan.gs (SCAN_BULK).
+   where is the spot inside the bulk box; the box is the one whose job fits (bulkBox). */
 const BULK = {
-  nonfoil: {label:"Commons & uncommons", row:"non-foil bulk", where:"Bulk Row 2", price:0.15},
-  reverse: {label:"Reverse holos (C/U)", row:"reverse holo bulk", where:"Bulk Row 1 Back", price:0.25},
-  holo: {label:"Holo rares", row:"holo rare bulk", where:"Bulk Row 1 Back", price:0.20},
-  trainer: {label:"Trainers", fixed:"Trainer bulk (count)", where:"Bulk Row 3 – Trainers", price:0.10},
-  energy: {label:"Basic Energy", fixed:"Basic Energy (count)", where:"Bulk Row 3 – Basic Energy", price:0.05}
+  nonfoil: {label:"Commons & uncommons", row:"non-foil bulk", where:"Row 2", price:0.15, cat:"Mixed"},
+  reverse: {label:"Reverse holos (C/U)", row:"reverse holo bulk", where:"Row 1 Back", price:0.25, cat:"Mixed"},
+  holo: {label:"Holo rares", row:"holo rare bulk", where:"Row 1 Back", price:0.20, cat:"Pokémon"},
+  trainer: {label:"Trainers", fixed:"Trainer bulk (count)", where:"Row 3 – Trainers", price:0.10, cat:"Trainer"},
+  energy: {label:"Basic Energy", fixed:"Basic Energy (count)", where:"Row 3 – Basic Energy", price:0.05, cat:"Energy"}
 };
+// Same pick as Scan.gs scanBulkBox_: the best-fitting bulk box, or the first one.
+const bulkBox = l => { const b = BULK[l.kind]; const fit = jobMatches({cat:b.cat, set:b.fixed ? "" : l.set, price:b.price}).find(u => u.type === "Bulk box");
+  return (fit || units().find(u => u.type === "Bulk box") || {label:"Bulk"}).label; };
 const bulkName = (set, kind) => BULK[kind].fixed || (String(set || "").trim() + " " + BULK[kind].row + " (count)");
 function bulkNow(set, kind){
   const n = normName(bulkName(set, kind));
@@ -762,19 +948,18 @@ function shrinkPhoto(file){
   });
 }
 
-// Where a card will go, from its price (the exact slot is decided when it's added).
+// Where a card will go: the storage whose job fits best (the exact spot is decided when it's added).
 function routeOf(c){
   const p = parseFloat(c.price);
-  if (c.kind === "sealed" || c.category === "Sealed") return {tier:"sealed", text:"Sealed shelf"};
-  if (!isFinite(p) || String(c.price ?? "").trim() === "") return {tier:"other", text:"Needs a price"};
+  const cat = c.kind === "sealed" || c.category === "Sealed" ? "Sealed" : c.category;
+  if (cat !== "Sealed" && (!isFinite(p) || String(c.price ?? "").trim() === "")) return {tier:"other", text:"Needs a price"};
   if (c.bulk && p < 2) return {tier:"bulk", text:"Add to " + (c.category === "Trainer" ? "Trainer bulk" : c.category === "Energy" && c.basicEnergy ? "Basic Energy"
     : c.set + (c.finish === "reverse" || /reverse/i.test(c.rarity || "") ? " reverse holo" : c.foil ? " holo rare" : " non-foil")) + " count"};
-  if (p >= 20) return {tier:"top", text:"Top loader · next buffer #"};
-  if (p >= 2) return {tier:"binder", text:"Binder · next open slot"};
-  if (c.foil) return {tier:"bulk", text:"Bulk Row 1 Back · sleeved"};
-  if (c.category === "Trainer") return {tier:"bulk", text:"Bulk Row 3 · Trainers"};
-  if (c.category === "Energy" && c.basicEnergy) return {tier:"bulk", text:"Bulk Row 3 · Basic Energy"};
-  return {tier:"bulk", text:"Bulk Row 2 · " + c.set};
+  const u = jobMatches({cat, set:c.set, price:p}).find(x => x.open > 0);
+  if (!u) return {tier:"other", text:"No storage fits · check the Storage tab"};
+  const spot = u.type === "Binder" || u.type === "Top loaders" ? " · next open" : u.type === "Bulk box"
+    ? (c.foil ? " · Row 1 Back, sleeved" : c.category === "Trainer" || (c.category === "Energy" && c.basicEnergy) ? " · Row 3" : " · Row 2 · " + c.set) : "";
+  return {tier:TIER_OF[u.type], text:u.label + spot};
 }
 
 function openScan(){
@@ -824,8 +1009,9 @@ function renderScan(){
     const t = SC.t, n = SC.cards.length;
     body = `${err}
       <p class="note" style="margin:0">Type the number from a bottom corner of the card. If more than one set has a card with that number, you'll pick yours.</p>
+      <p class="note" style="margin:0">Tip: let the phone read it. On iPhone, tap the Card # box again and choose <b>Scan Text</b>. On Android, use <b>Scan text</b> in the keyboard's menu.</p>
       <div class="sflds b2">
-        <label class="field"><span>Card #</span><input id="tnum" value="${esc(t.number)}" placeholder="025/165" autocomplete="off" enterkeyhint="search"></label>
+        <label class="field"><span>Card #</span><input id="tnum" value="${esc(t.number)}" placeholder="025/165" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></label>
         <label class="field"><span>Foil</span><select id="tfinish">${[["normal","No foil"],["holo","Holo"],["reverse","Reverse holo"]].map(([v, l]) => `<option value="${v}"${v === t.finish ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       </div>
       <label class="field"><span>Name <i class="muted">optional, close spelling is fine</i></span><input id="tname" value="${esc(t.name)}" placeholder="e.g. Pikachu ex" autocomplete="off" autocapitalize="words" enterkeyhint="search"></label>
@@ -879,7 +1065,7 @@ function renderScan(){
     body = `<div class="sdone"><h3>${title} in “${esc(CFG.sheetName)}”</h3>
       <ol class="sacts">${r.added.map(a => `<li class="t-${tierOf(a.loc)}"><b>${esc(a.name)}</b>${a.bulk ? ` <span class="muted">+${int(a.qty)}</span>` : `${a.qty > 1 ? " ×" + int(a.qty) : ""} <span class="muted">${usd(a.price)}</span>`}<div>${esc(a.action)}</div></li>`).join("")}</ol>
       ${r.grading ? `<p class="note" style="margin:0">${r.grading === 1 ? "1 card is" : r.grading + " cards are"} on the Grading tab. Add PSA prices there to get the grade-or-skip verdict.</p>` : ""}
-      ${r.next ? `<div class="spots"><div class="spot"><div class="eyebrow">Next binder slot</div><div class="v">${esc(r.next.binder || "–")}</div></div><div class="spot"><div class="eyebrow">Next buffer</div><div class="v">${esc(r.next.buffer || "–")}</div></div></div>` : ""}
+      ${r.next && r.next.length ? `<div class="spots">${r.next.map(n => `<div class="spot"><div class="eyebrow">Next in ${esc(n.label)}</div><div class="v">${esc(n.loc)}</div></div>`).join("")}</div>` : ""}
       </div>
       <div class="sbar"><button class="btn" type="button" id="sfinish">Done</button><button class="btn primary" type="button" id="smore">${r.bulkOnly ? "More counts" : "Scan more"}</button></div>`;
   }
@@ -1088,11 +1274,11 @@ function bulkHint(i){
   const l = SC.lines[i], el = document.querySelector(`#scan [data-b="${i}"] .bnow`);
   const b = BULK[l.kind], q = parseInt(l.qty, 10), needSet = !b.fixed && !String(l.set || "").trim();
   if (el) {
-    if (needSet) el.textContent = "Pick a set. Goes to " + b.where + " behind that set's divider.";
+    if (needSet) el.textContent = "Pick a set. Goes to " + bulkBox(l) + " " + b.where + " behind that set's divider.";
     else {
       const now = bulkNow(l.set, l.kind), name = bulkName(l.set, l.kind);
       const after = isFinite(q) ? (SC.bmode === "set" ? q : (now || 0) + q) : null;
-      el.textContent = (now == null ? "New count row: " + name : "Now " + int(now) + " in " + name) + (after != null ? " → " + int(after) : "") + " · " + (b.fixed ? b.where : b.where + " – " + l.set.trim());
+      el.textContent = (now == null ? "New count row: " + name : "Now " + int(now) + " in " + name) + (after != null ? " → " + int(after) : "") + " · " + bulkBox(l) + " " + (b.fixed ? b.where : b.where + " – " + l.set.trim());
     }
   }
   const okLine = x => { const n = parseInt(x.qty, 10); return (BULK[x.kind].fixed || String(x.set || "").trim()) && isFinite(n) && (SC.bmode === "set" ? n >= 0 : n > 0); };
@@ -1135,6 +1321,8 @@ function wire(){
     setTab(b.dataset.go);
   });
   document.querySelectorAll("[data-page]").forEach(b => b.onclick = () => { const p = +b.dataset.page; S.flip = p === S.page ? "" : p > S.page ? "flip-next" : "flip-prev"; S.page = p; render(); });
+  document.querySelectorAll("[data-binder]").forEach(b => b.onclick = () => { S.binder = b.dataset.binder; S.page = 1; render(); });
+  if (S.tab === "storage") wireStorage();
   if (S.tab === "collection") {
     const q = $("q");
     q.oninput = () => { S.q = q.value; updateList(); };
