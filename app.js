@@ -1076,7 +1076,8 @@ function renderScan(){
 function scanCardView(c, k){
   const r = routeOf(c), conf = c.confidence === "low" ? "Check this one" : c.confidence === "medium" ? "Fairly sure" : "";
   const tcg = priceUrl({name:c.name, num:c.number, tier:c.kind === "sealed" ? "sealed" : "binder"});
-  const others = (c.others || []).map(o => `${esc(o.label)} ${usd(o.price)}`).join(" · ");
+  // Other printings TCGdex priced: tap one to use its price and finish.
+  const others = (c.others || []).map((o, j) => `<button class="linkbtn" type="button" data-alt="${k}:${j}">${esc(o.label)} ${usd(o.price)}</button>`).join(" · ");
   return `<article class="scard${c.skip ? " skip" : ""} t-${r.tier}" data-k="${k}">
     <div class="stop">
       <span class="thumb">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : ""}</span>
@@ -1095,7 +1096,7 @@ function scanCardView(c, k){
     <div class="sdest"><span class="pin t-${r.tier}"><i></i>${esc(r.text)}</span>${tcg ? `<a href="${tcg}" target="_blank" rel="noopener">TCGplayer ↗</a>` : ""}</div>
     ${c.kind !== "sealed" ? `<label class="check sbulk"${parseFloat(c.price) < 2 ? "" : " hidden"}><input type="checkbox" data-f="bulk" data-k="${k}"${c.bulk ? " checked" : ""}> Add to the bulk count instead of its own row</label>` : ""}
     <ul class="snotes">
-      ${c.priceNote ? `<li>${esc(c.priceNote)}${others ? " Other versions: " + others + "." : ""}</li>` : ""}
+      ${c.priceNote ? `<li>${esc(c.priceNote)}${others ? " Other versions (tap to use): " + others + "." : ""}</li>` : ""}
       ${c.note ? `<li>${esc(c.note)}</li>` : ""}
       ${(c.checks || []).map(x => `<li class="warn">${esc(x)}</li>`).join("")}
     </ul>
@@ -1150,6 +1151,7 @@ function wireScan(){
   });
   if (SC.step === "bulk") SC.lines.forEach((_, i) => bulkHint(i));
   document.querySelectorAll("#scan [data-skip]").forEach(b => b.onclick = () => { const c = SC.cards[+b.dataset.skip]; c.skip = !c.skip; renderScan(); });
+  document.querySelectorAll("#scan [data-alt]").forEach(b => b.onclick = () => useVersion(...b.dataset.alt.split(":").map(Number)));
   document.querySelectorAll("#scan [data-f]").forEach(el => {
     const upd = () => {
       const c = SC.cards[+el.dataset.k], f = el.dataset.f;
@@ -1160,6 +1162,15 @@ function wireScan(){
     };
     el.oninput = upd; el.onchange = upd;
   });
+}
+// Swaps a card to another printing's price and finish (the old one goes back on the list of other versions).
+function useVersion(k, j){
+  const c = SC.cards[k], o = c.others[j];
+  const finish = /reverse/i.test(o.label) ? "reverse" : /holo/i.test(o.label) ? "holo" : "normal";
+  c.others = c.others.filter((_, i) => i !== j).concat(isFinite(parseFloat(c.price)) ? [{label:{normal:"Normal", holo:"Holo", reverse:"Reverse holo"}[c.finish] || c.finish, price:parseFloat(c.price)}] : []);
+  c.rarity = String(c.rarity || "").replace(/\s*\(Reverse Holo\)$/i, "") + (finish === "reverse" ? " (Reverse Holo)" : "");
+  Object.assign(c, {price:o.price, finish, foil:finish !== "normal", priceNote:"TCGplayer market price (" + o.label + ")."});
+  renderScan();
 }
 // Updates one card's "where it goes" and the Add button without redrawing (keeps the keyboard open while typing).
 function refreshScanCard(k){

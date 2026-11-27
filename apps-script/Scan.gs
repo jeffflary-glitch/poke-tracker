@@ -429,6 +429,11 @@ function scanEnrich_(c, known) {
     const keys = SCAN_VARIANTS[out.finish] || [];
     let key = keys.find(k => prices[k] != null);
     const all = Object.keys(prices);
+    // A card with no non-foil printing (most older holo rares) is a holo, whatever was picked or read.
+    if (!key && out.finish === 'normal' && !all.some(k => SCAN_VARIANTS.normal.indexOf(k) >= 0)) {
+      key = SCAN_VARIANTS.holo.find(k => prices[k] != null);
+      if (key) { out.finish = 'holo'; out.foil = true; out.priceNote = 'This card has no non-foil version, so it\'s priced as the holo.'; }
+    }
     if (!key && all.length === 1 && (out.finish === 'holo' || out.finish === 'normal' || out.finish === 'reverse')) {
       key = all[0];
       if (out.finish === 'reverse' && !/reverse/i.test(key)) out.priceNote = 'No reverse holo price listed; using the ' + (SCAN_VARIANT_LABEL[key] || key) + ' price.';
