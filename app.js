@@ -213,6 +213,15 @@ function priceUrl(r){
   const q = (base + (r.tier !== "sealed" && num && !/mixed/i.test(num) ? " " + num : "")).replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim();
   return q ? "https://www.tcgplayer.com/search/pokemon/product?productLineName=pokemon&view=grid&q=" + encodeURIComponent(q) : "";
 }
+// Where a row's price comes from, matching what Prices.gs does to it.
+const PRICE_SRC = {
+  single: "TCGplayer market price, looked up in TCGdex every morning.",
+  sealed: "TCGplayer market price (or eBay sold prices if TCGplayer has none), found by web search every Sunday.",
+  ball: "TCGdex has no Poké Ball or Master Ball pattern prices, so this stays at the price it was added with.",
+  count: "Set by hand for this bulk count. It isn't checked automatically."
+};
+const priceSrc = r => /\(count\)/i.test(r.name) ? PRICE_SRC.count : r.cat === "Sealed" ? PRICE_SRC.sealed
+  : /pok[eé] ?ball|master ?ball/i.test(r.rarity || "") ? PRICE_SRC.ball : PRICE_SRC.single;
 function openDetail(i){
   const r = (S.data.collection || [])[i];
   const d = $("detail");
@@ -227,6 +236,7 @@ function openDetail(i){
         <div><div class="k">Qty</div><div class="v">${int(r.qty)}</div></div>
         <div><div class="k">Total</div><div class="v">${usd(r.total)}</div></div>
       </div>
+      <p class="note" style="margin:0">Price source: ${esc(priceSrc(r))}</p>
       ${r.paid != null ? `<div class="gtbl">
         <div><div class="k">Paid each</div><div class="v">${usd(r.paid)}</div></div>
         <div><div class="k">Paid total</div><div class="v">${usd(r.paid * r.qty)}</div></div>
@@ -425,7 +435,7 @@ function parse(key, rows){
   if (key === "grading") return body.map(r => ({name:r[0], set:r[1]||"", num:r[2]||"", raw:money(r[3]), p10:money(r[4]), p9:money(r[5]), p8:money(r[6]),
       net10:money(r[7]), net9:money(r[8]), rec:String(r[9]||"").toUpperCase(), ai:r[10]||"", hands:r[11]||"", send:r[12]||"", step:r[13]||"", grade:r[14]||"", housing:r[15]||""}));
   if (key === "log") return body.map(r => ({date:r[0], items:money(r[1]), value:money(r[2]), note:r[3]||""}));
-  // Price History: Date | Card / Item Name | Set / Series | Card # | Old Price ($) | New Price ($), one row per card the Sunday check re-prices
+  // Price History: Date | Card / Item Name | Set / Series | Card # | Old Price ($) | New Price ($), one row per card a price check re-prices
   if (key === "history") return body.map(r => ({date:String(r[0]||"").trim(), name:r[1]||"", set:r[2]||"", num:r[3]||"",
       old:money(r[4]), now:money(r[5]), hasOld:String(r[4]||"").trim() !== "" && String(r[5]||"").trim() !== ""}));
   return body;
@@ -606,7 +616,8 @@ function viewOverview(){
   <section class="hero" aria-label="Collection value">
     <div class="eyebrow">Collection value · ${esc(CFG.sheetName)}</div>
     <div class="big">${usd(value)}</div>
-    <div class="sub"><span><b>${int(cardQty)}</b> cards</span><span><b>${int(sealedQty)}</b> sealed items</span><span><b>${int(c.length)}</b> rows</span>${S.data.log && S.data.log.length ? `<span>Last price check <b>${esc(S.data.log[S.data.log.length-1].date)}</b></span>` : ""}</div>
+    <div class="sub"><span><b>${int(cardQty)}</b> cards</span><span><b>${int(sealedQty)}</b> sealed items</span><span><b>${int(c.length)}</b> rows</span>${S.data.log && S.data.log.length ? `<span>Last weekly check <b>${esc(S.data.log[S.data.log.length-1].date)}</b></span>` : ""}</div>
+    <div class="sub">Prices: singles are TCGplayer market prices from TCGdex, every morning. Sealed items come from a web search of TCGplayer, every Sunday.</div>
   </section>
   <section class="panel">
     <h2>Where the value sits</h2>
@@ -645,7 +656,7 @@ function recentView(c){
 function moversView(){
   const m = movers();
   const head = `<h2>Price movers</h2>`;
-  if (!m) return `${head}<p class="note" style="margin:0">Movers show up after the next Sunday price check, which will save each card's old and new price.</p>`;
+  if (!m) return `${head}<p class="note" style="margin:0">Movers show up after the next price check, which saves each card's old and new price.</p>`;
   const item = x => {
     const r = x.r, tap = r ? ` tap" data-i="${r.i}` : "";
     const pic = picAttrs(r || {tier:"binder", name:x.h.name, set:x.h.set, num:x.h.num});
@@ -767,6 +778,7 @@ function viewGrading(){
   const pill = r => r === "GRADE" ? "p-grade" : r === "GAMBLE" ? "p-gamble" : "p-skip";
   const sign = n => `<span class="${n >= 0 ? "pos" : "neg"}">${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}</span>`;
   return `<p class="note" style="margin:0">GRADE pays even at a PSA 9. GAMBLE only pays at a PSA 10, so send it only if it looks flawless. Net figures are after the PSA fee, shipping and selling fees.</p>
+  <p class="note" style="margin:0">Raw NM is TCGplayer's market price from TCGdex, every morning. PSA 10, 9 and 8 are recent sold prices found by web search (PriceCharting, PSA auction prices or eBay sold listings) every Sunday.</p>
   ${secErr("grading","Grading")}
   <div class="grid2">${g.map(x => { const r = findCard(x.name, x.num, x.set); return `
     <article class="gcard${r ? ` tap" data-i="${r.i}" tabindex="0` : ""}">
