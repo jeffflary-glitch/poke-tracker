@@ -823,7 +823,7 @@ function renderScan(){
   } else if (SC.step === "type") {
     const t = SC.t, n = SC.cards.length;
     body = `${err}
-      <p class="note" style="margin:0">Type what's printed on the card. The set and price are looked up for you.</p>
+      <p class="note" style="margin:0">Type the name and the number from a bottom corner. Close spelling is fine; the number does the matching. The set and price are looked up for you.</p>
       <label class="field"><span>Card name</span><input id="tname" value="${esc(t.name)}" placeholder="e.g. Pikachu ex" autocomplete="off" autocapitalize="words"></label>
       <div class="sflds b2">
         <label class="field"><span>Card #</span><input id="tnum" value="${esc(t.number)}" placeholder="025/165" autocomplete="off" enterkeyhint="search"></label>

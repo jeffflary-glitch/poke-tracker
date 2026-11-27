@@ -281,6 +281,35 @@ function scanFindCard_(c) {
   return null;
 }
 
+// Typed cards whose name is misspelled: the card at that number in every set with that printed total
+// (or in the typed set, for promos), picking the name closest to what was typed.
+function scanFindByNumber_(c) {
+  const sets = scanSets_(), nk = scanNumKey_(c.number), total = scanTotal_(c.number), want = scanNorm_(scanCardName_(c.name));
+  if (!nk) return null;
+  let ids = [];
+  if (total) { for (const k in sets) if (sets[k][1] === total) ids.push(sets[k][0]); }
+  else if (c.set) {
+    const best = Object.keys(sets).map(k => [k, scanSimilar_(k, scanNormSet_(c.set))]).sort((a, b) => b[1] - a[1])[0];
+    if (best && best[1] >= 0.6) ids.push(sets[best[0]][0]);
+  }
+  const found = ids.slice(0, 8).map(id => scanSetInfo_(id).cards[nk]).filter(Boolean)
+    .map(id => scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id))).filter(Boolean)
+    .map(card => ({card: card, score: scanSimilar_(scanNorm_(scanCardName_(card.name)), want)}))
+    .sort((a, b) => b.score - a.score);
+  return found.length && found[0].score >= 0.5 ? found[0].card : null;
+}
+// How alike two strings are, 0 to 1 (1 = the same), from the number of letters to change.
+function scanSimilar_(a, b) {
+  if (!a || !b) return 0;
+  let prev = Array.from({length: b.length + 1}, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+
 // Sets already in the Collection tab: their names, and which set each printed total belongs to
 // (e.g. 084 → Pitch Black). Used when a set is too new to be in the card database.
 function scanSheetSets_() {
@@ -355,11 +384,12 @@ function scanEnrich_(c, known) {
       out.checks.push('Set changed from ' + out.set + ' to ' + bySet + ' to match the printed code ' + out.setCode + '.');
       out.set = bySet;
     }
-    card = scanFindCard_(out);
+    card = scanFindCard_(out) || (c.fromDb ? scanFindByNumber_(out) : null);
   } catch (e) {}
   if (card) {
     if (card.set && card.set.name) out.set = card.set.name;
-    if (c.fromDb) {   // typed cards: rarity and type come from the database instead of the photo
+    if (c.fromDb) {   // typed cards: name, rarity and type come from the database
+      if (card.name && scanNorm_(card.name) !== scanNorm_(out.name)) out.note = 'Found by card number. You typed "' + out.name + '".';
       out.name = card.name || out.name;
       out.rarity = card.rarity || '';
       out.category = {Pokemon: 'Pokémon', Trainer: 'Trainer', Energy: 'Energy'}[card.category] || out.category;
