@@ -80,13 +80,25 @@ function scanIdentify_(image, mediaType) {
   };
 }
 
-// A card typed in the app (name, card number, finish, optional set): TCGdex only, so it costs nothing.
+// A card typed in the app (card number, finish, optional name and set): TCGdex only, so it costs nothing.
+// With no name, the card at that number is used; if several sets have one there, the app gets {choices} to pick from.
 function scanLookup_(t) {
   t = t || {};
-  const name = String(t.name || '').trim(), number = String(t.number || '').trim();
-  if (!name || !number) throw new Error('Type the card name and its number.');
+  let name = String(t.name || '').trim(), set = String(t.set || '').trim();
+  const number = scanFmtNumber_(String(t.number || '').trim());
+  if (!number) throw new Error('Type the card number.');
+  if (!name) {
+    const found = scanCardsAtNumber_({number: number, set: set});
+    if (!found.length) throw new Error(scanTotal_(number) ? 'No card has the number ' + number + '. Check it, or type the name too.'
+      : 'For a number without a slash (like a promo), type the set or the name too.');
+    if (found.length > 1) {
+      return {choices: found.map(card => ({name: card.name, set: card.set && card.set.name || '', rarity: card.rarity || '',
+        image: card.image ? card.image + '/low.webp' : ''}))};
+    }
+    name = found[0].name; set = (found[0].set && found[0].set.name) || set;
+  }
   const finish = ['normal', 'holo', 'reverse'].indexOf(t.finish) >= 0 ? t.finish : 'normal';
-  const c = scanEnrich_({kind: 'card', name: name, set: String(t.set || '').trim(), number: scanFmtNumber_(number), finish: finish,
+  const c = scanEnrich_({kind: 'card', name: name, set: set, number: number, finish: finish,
     foil: finish !== 'normal', confidence: 'high', fromDb: true}, scanSheetSets_());
   scanChecks_(c);
   return {card: c};
@@ -281,22 +293,29 @@ function scanFindCard_(c) {
   return null;
 }
 
-// Typed cards whose name is misspelled: the card at that number in every set with that printed total
-// (or in the typed set, for promos), picking the name closest to what was typed.
+// Typed cards whose name is misspelled: of the cards at that number, the one whose name is closest to what was typed.
 function scanFindByNumber_(c) {
-  const sets = scanSets_(), nk = scanNumKey_(c.number), total = scanTotal_(c.number), want = scanNorm_(scanCardName_(c.name));
-  if (!nk) return null;
+  const want = scanNorm_(scanCardName_(c.name));
+  const found = scanCardsAtNumber_(c).map(card => ({card: card, score: scanSimilar_(scanNorm_(scanCardName_(card.name)), want)}))
+    .sort((a, b) => b.score - a.score);
+  return found.length && found[0].score >= 0.5 ? found[0].card : null;
+}
+// The card at this number in every set with its printed total (045/084 → sets with 84 cards),
+// or in the typed set (closest set name) when the number has no total, like most promos.
+function scanCardsAtNumber_(c) {
+  const sets = scanSets_(), nk = scanNumKey_(c.number), total = scanTotal_(c.number);
+  if (!nk) return [];
   let ids = [];
-  if (total) { for (const k in sets) if (sets[k][1] === total) ids.push(sets[k][0]); }
-  else if (c.set) {
+  if (total) {
+    const same = Object.keys(sets).filter(k => sets[k][1] === total);
+    const named = c.set ? same.filter(k => scanSimilar_(k, scanNormSet_(c.set)) >= 0.6) : [];
+    ids = (named.length ? named : same).map(k => sets[k][0]);
+  } else if (c.set) {
     const best = Object.keys(sets).map(k => [k, scanSimilar_(k, scanNormSet_(c.set))]).sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] >= 0.6) ids.push(sets[best[0]][0]);
   }
-  const found = ids.slice(0, 8).map(id => scanSetInfo_(id).cards[nk]).filter(Boolean)
-    .map(id => scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id))).filter(Boolean)
-    .map(card => ({card: card, score: scanSimilar_(scanNorm_(scanCardName_(card.name)), want)}))
-    .sort((a, b) => b.score - a.score);
-  return found.length && found[0].score >= 0.5 ? found[0].card : null;
+  return ids.slice(0, 8).map(id => scanSetInfo_(id).cards[nk]).filter(Boolean)
+    .map(id => scanGetJSON_(SCAN_TCG + '/cards/' + encodeURIComponent(id))).filter(Boolean);
 }
 // How alike two strings are, 0 to 1 (1 = the same), from the number of letters to change.
 function scanSimilar_(a, b) {

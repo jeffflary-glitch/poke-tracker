@@ -706,7 +706,7 @@ function viewStorage(){
    "Type a card" skips the photo: name + card number are looked up in TCGdex (free, no AI) and land on the same list.
    The Claude API key never comes to the phone; it stays in Apps Script. The phone only keeps the passcode. */
 const PASS_KEY = CFG.store + "-pass";
-const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add", typed:false, t:{name:"", number:"", finish:"normal", set:""}};
+const SC = {step:"pick", cards:[], photo:"", err:"", note:"", cost:0, result:null, added:false, batch:"", lines:[], bmode:"add", typed:false, choices:[], t:{name:"", number:"", finish:"normal", set:""}};
 /* Bulk counts: one count row per set and type, like "Journey Together non-foil bulk (count)".
    Trainers and basic Energy each share one row (Bulk Row 3 has no set dividers). Must match Scan.gs (SCAN_BULK). */
 const BULK = {
@@ -823,18 +823,26 @@ function renderScan(){
   } else if (SC.step === "type") {
     const t = SC.t, n = SC.cards.length;
     body = `${err}
-      <p class="note" style="margin:0">Type the name and the number from a bottom corner. Close spelling is fine; the number does the matching. The set and price are looked up for you.</p>
-      <label class="field"><span>Card name</span><input id="tname" value="${esc(t.name)}" placeholder="e.g. Pikachu ex" autocomplete="off" autocapitalize="words"></label>
+      <p class="note" style="margin:0">Type the number from a bottom corner of the card. If more than one set has a card with that number, you'll pick yours.</p>
       <div class="sflds b2">
         <label class="field"><span>Card #</span><input id="tnum" value="${esc(t.number)}" placeholder="025/165" autocomplete="off" enterkeyhint="search"></label>
         <label class="field"><span>Foil</span><select id="tfinish">${[["normal","No foil"],["holo","Holo"],["reverse","Reverse holo"]].map(([v, l]) => `<option value="${v}"${v === t.finish ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       </div>
-      <label class="field"><span>Set <i class="muted">optional, helps for promos</i></span><input id="tset" list="tsets" value="${esc(t.set)}" placeholder="e.g. Surging Sparks" autocomplete="off"></label>
+      <label class="field"><span>Name <i class="muted">optional, close spelling is fine</i></span><input id="tname" value="${esc(t.name)}" placeholder="e.g. Pikachu ex" autocomplete="off" autocapitalize="words" enterkeyhint="search"></label>
+      <label class="field"><span>Set <i class="muted">optional, needed for promos</i></span><input id="tset" list="tsets" value="${esc(t.set)}" placeholder="e.g. Surging Sparks" autocomplete="off"></label>
       <datalist id="tsets">${[...new Set((S.data.collection || []).map(r => String(r.set || "").replace(/\s*\(.*\)\s*$/, "").trim()).filter(x => x && !/^mixed$/i.test(x)))].sort().map(x => `<option value="${esc(x)}">`).join("")}</datalist>
       <div class="sbar">
         <button class="btn" type="button" id="${n ? "treview" : "sback"}">${n ? "Back to list (" + n + ")" : "Back"}</button>
         <button class="btn primary" type="button" id="tlook">Look it up</button>
       </div>`;
+  } else if (SC.step === "choose") {
+    body = `${err}
+      <p class="note" style="margin:0">${SC.choices.length} cards have the number ${esc(SC.t.number.trim())}. Tap yours.</p>
+      <div class="tchoices">${SC.choices.map((c, i) => `<button class="tchoice" type="button" data-pick="${i}">
+        <span class="thumb">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : ""}</span>
+        <span class="sinfo"><span class="nm">${esc(c.name)}</span><span class="meta">${[c.set, c.rarity].filter(Boolean).map(esc).join(" · ")}</span></span>
+      </button>`).join("")}</div>
+      <div class="sbar"><button class="btn" type="button" id="tback">Back</button></div>`;
   } else if (SC.step === "review") {
     const keep = SC.cards.filter(c => !c.skip);
     const missing = keep.filter(c => !isFinite(parseFloat(c.price)) || String(c.price ?? "").trim() === "");
@@ -932,11 +940,13 @@ function wireScan(){
   on("sbulk", () => { SC.err = ""; SC.step = "bulk"; renderScan(); });
   on("stype", () => { SC.err = ""; SC.step = "type"; renderScan(); });
   on("treview", () => { SC.err = ""; SC.step = "review"; renderScan(); });
-  on("tlook", lookupCard);
+  on("tlook", () => lookupCard());
+  on("tback", () => { SC.err = ""; SC.step = "type"; renderScan(); });
+  document.querySelectorAll("#scan [data-pick]").forEach(b => b.onclick = () => lookupCard(SC.choices[+b.dataset.pick]));
   if (SC.step === "type") {
     ["tname", "tnum", "tset", "tfinish"].forEach(id => { const el = $(id); el.oninput = el.onchange = () => { SC.t[{tname:"name", tnum:"number", tset:"set", tfinish:"finish"}[id]] = el.value; }; });
-    ["tnum", "tset"].forEach(id => { $(id).onkeydown = e => { if (e.key === "Enter") lookupCard(); }; });
-    setTimeout(() => { const n = $("tname"); if (n) n.focus(); }, 50);
+    ["tnum", "tname", "tset"].forEach(id => { $(id).onkeydown = e => { if (e.key === "Enter") lookupCard(); }; });
+    setTimeout(() => { const n = $("tnum"); if (n) n.focus(); }, 50);
   }
   on("sback", () => { SC.err = ""; SC.step = "pick"; renderScan(); });
   on("badd", () => { const last = SC.lines[SC.lines.length - 1] || {}; SC.lines.push({kind:last.kind || "nonfoil", set:BULK[last.kind] && !BULK[last.kind].fixed ? last.set || "" : "", qty:"", price:""}); renderScan(); const q = document.querySelectorAll("#scan [data-bf=qty]"); if (q.length) q[q.length - 1].focus(); });
@@ -1023,12 +1033,15 @@ async function runScan(file){
 }
 
 // "Type a card": looks the card up (Scan.gs, action "lookup", no AI) and adds it to the list to check.
-async function lookupCard(){
+// pick is the card tapped on the "choose" screen when several sets have that number.
+async function lookupCard(pick){
   const t = SC.t;
-  if (!t.name.trim() || !t.number.trim()) { SC.err = "Type the card name and its number."; renderScan(); return; }
+  if (!t.number.trim()) { SC.err = "Type the card number."; renderScan(); return; }
   SC.err = ""; SC.typed = true; SC.step = "working"; renderScan();
   try {
-    const d = await scanCall({action:"lookup", card:{name:t.name.trim(), number:t.number.trim(), finish:t.finish, set:t.set.trim()}}, 45000);
+    const card = {number:t.number.trim(), finish:t.finish, name:pick ? pick.name : t.name.trim(), set:pick ? pick.set : t.set.trim()};
+    const d = await scanCall({action:"lookup", card}, 45000);
+    if (d.choices) { SC.choices = d.choices; SC.step = "choose"; renderScan(); return; }
     SC.cards.push(Object.assign({skip:false}, d.card, {bulk:bulkByDefault(d.card)}));
     if (!SC.batch) SC.batch = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     SC.t = {name:"", number:"", finish:t.finish, set:t.set};
