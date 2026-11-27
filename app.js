@@ -499,14 +499,29 @@ function loadAll(quiet){
     render();
   });
 }
+// A home-screen app can stay open for days. On opening and on coming back, it checks the page for a newer app.js
+// (the ?v= tag) and reloads into it, but never over something half done: an open card or scan screen, a scan list
+// waiting to be added, or a storage edit. It tries each new version once per session, so a stale copy can't loop.
+const APP_V = new URL(document.currentScript.src).searchParams.get("v");
+function checkUpdate(){
+  fetch(location.pathname + "?t=" + Date.now(), {cache:"no-store"}).then(r => r.ok ? r.text() : "").then(html => {
+    const v = (html.match(/app\.js\?v=([\w.-]+)/) || [])[1];
+    if (!v || v === APP_V || document.querySelector("dialog[open]") || SC.cards.length || ST.edit != null) return;
+    try { if (sessionStorage.getItem(CFG.store + "-update") === v) return; sessionStorage.setItem(CFG.store + "-update", v); } catch(e) {}
+    location.reload();
+  }).catch(() => {});
+}
 function boot(){
   try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); if (c && rightSheet(c)) apply(c); } catch(e) {}
   render();
   loadAll();
+  checkUpdate();
   // Refresh every 5 minutes while the app is on screen, and when you come back to it.
   setInterval(() => { if (!document.hidden) loadAll(true); }, 300000);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && S.at.collection && Date.now() - S.at.collection > 120000) loadAll();
+    if (document.hidden) return;
+    checkUpdate();
+    if (S.at.collection && Date.now() - S.at.collection > 120000) loadAll();
   });
 }
 
